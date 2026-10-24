@@ -1,13 +1,16 @@
 import { t, getLanguage, setLanguage, onLanguageChange } from '../i18n';
 import { getLogoInlineSvg, syncFaviconWithTheme } from '../assets/logos';
 import { renderDropdownMenu } from '../ui';
+import { APP_CONFIG } from '../config';
 
 export interface HeaderCallbacks {
   onNavigate: (page: 'studio' | 'telemetry') => void;
+  onResetToFreshState?: () => void;
+  onApiHealthChanged?: (online: boolean) => void;
   onOpenFeedback: (initialType?: 'discrepancy' | 'grid_update' | 'bug' | 'feature' | 'api_down') => void;
   onOpenGridInfo: () => void;
   onOpenGeodeticHelp: () => void;
-  onToggleMobileView: () => void;
+  onToggleMobileView?: () => void;
 }
 
 export class Header {
@@ -75,11 +78,13 @@ export class Header {
       const online = res.ok && res.status === 200;
       if (this.isApiOnline !== online) {
         this.isApiOnline = online;
+        this.callbacks.onApiHealthChanged?.(this.isApiOnline);
         this.render();
       }
     } catch {
       if (this.isApiOnline !== false) {
         this.isApiOnline = false;
+        this.callbacks.onApiHealthChanged?.(this.isApiOnline);
         this.render();
       }
     }
@@ -112,27 +117,14 @@ export class Header {
         <a href="/" class="header-brand-link" title="PyTransDatRO Home">
           <span class="brand-logo-wrap" id="header-brand-logo-wrap">${getLogoInlineSvg(36)}</span>
           <div class="brand-text-column">
-            <span class="brand-title-text">${t('app.title')}</span>
+            <span class="brand-title-text">${APP_CONFIG.appName}</span>
             <div class="brand-meta-subrow">
-              <span class="brand-stage-badge">${t('app.version')}</span>
-              <button 
-                type="button"
+              <span class="brand-stage-badge">v${APP_CONFIG.appVersion.replace(/^v/, '')}</span>
+              <span 
                 class="health-dot ${this.isApiOnline ? 'online' : 'offline'}" 
-                id="header-health-dot-btn"
-                title="${this.isApiOnline ? 'API Connected & Healthy' : 'API Offline - Click to report issue'}"
-              ></button>
-              ${
-                !this.isApiOnline
-                  ? `
-                <button type="button" class="header-offline-alert" id="header-offline-alert-btn" title="Report REST API failure">
-                  <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 3a1 1 0 011 1v4a1 1 0 11-2 0V5a1 1 0 011-1zm0 8a1.25 1.25 0 110-2.5 1.25 1.25 0 010 2.5z"/>
-                  </svg>
-                  <span>Report REST API failure</span>
-                </button>
-              `
-                  : ''
-              }
+                id="header-health-dot"
+                title="${this.isApiOnline ? t('header.apiHealthyTooltip') : t('header.apiOfflineTooltip')}"
+              ></span>
             </div>
           </div>
         </a>
@@ -161,7 +153,7 @@ export class Header {
             role="tab" 
             aria-selected="${this.activePage === 'studio'}"
           >
-            <span>Transform</span>
+            <span>${t('header.viewTransform')}</span>
             <span class="header-tab-indicator"></span>
           </button>
           <button 
@@ -171,7 +163,7 @@ export class Header {
             role="tab" 
             aria-selected="${this.activePage === 'telemetry'}"
           >
-            <span>Usage</span>
+            <span>${t('header.viewUsageData')}</span>
             <span class="header-tab-indicator"></span>
           </button>
         </nav>
@@ -181,8 +173,6 @@ export class Header {
       <div class="header-zone-actions">
         <!-- Reusable Help Menu Slot -->
         <div id="header-help-slot"></div>
-
-        <div class="header-divider-v"></div>
 
         <!-- Utilities: Language Selector Menu & Theme Action Button -->
         <div class="header-utilities-dock">
@@ -207,10 +197,6 @@ export class Header {
                    </svg>`
             }
           </button>
-
-          <button type="button" class="btn btn-secondary mobile-only-btn" id="header-mobile-view-btn" style="display: none;">
-            <span>${t('app.mobileViewToggle')}</span>
-          </button>
         </div>
       </div>
     `;
@@ -232,21 +218,18 @@ export class Header {
           type: 'action',
           id: 'menu-help-app-btn',
           label: t('header.helpApp'),
-          iconSvg: `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 5.5a2.5 2.5 0 0 1 4.5 1.5c0 1.5-2 2-2 3v.5M8 13.5h.01"/></svg>`,
           onClick: () => this.callbacks.onOpenGeodeticHelp(),
         },
         {
           type: 'action',
           id: 'menu-grid-info-btn',
           label: t('header.gridInfo'),
-          iconSvg: `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h12M4 2v12M8 2v12M12 2v12"/></svg>`,
           onClick: () => this.callbacks.onOpenGridInfo(),
         },
         {
           type: 'action',
           id: 'menu-feedback-btn',
           label: t('header.feedback'),
-          iconSvg: `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h12a1 1 0 011 1v8a1 1 0 01-1 1H4l-3 3V4a1 1 0 011-1z"/></svg>`,
           onClick: () => this.callbacks.onOpenFeedback('discrepancy'),
         },
         { type: 'divider', dashed: true },
@@ -294,7 +277,6 @@ export class Header {
       id: 'header-lang-details',
       triggerLabel: currentLang.toUpperCase(),
       triggerVariant: 'menu-item',
-      triggerIconSvg: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`,
       menuWidth: '152px',
       ariaLabel: t('app.langToggle'),
       onOpenChange: (isOpen) => {
@@ -326,28 +308,33 @@ export class Header {
     this.element.querySelector('#header-lang-slot')?.replaceWith(langDropdown);
 
     // Attach Event Listeners
+    this.element.querySelector('#header-brand-logo-wrap')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (this.callbacks.onResetToFreshState) {
+        this.callbacks.onResetToFreshState();
+      } else {
+        this.callbacks.onNavigate('studio');
+      }
+    });
+
+    this.element.querySelector('.brand-title-text')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.callbacks.onNavigate('studio');
+    });
+
+    this.element.querySelector('.header-brand-link')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      this.callbacks.onNavigate('studio');
+    });
+
     this.element.querySelector('#nav-btn-studio')?.addEventListener('click', () => {
       this.callbacks.onNavigate('studio');
     });
 
     this.element.querySelector('#nav-btn-telemetry')?.addEventListener('click', () => {
       this.callbacks.onNavigate('telemetry');
-    });
-
-    this.element.querySelector('#header-offline-alert-btn')?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      this.callbacks.onOpenFeedback('api_down');
-    });
-
-    this.element.querySelector('#header-health-dot-btn')?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      if (!this.isApiOnline) {
-        this.callbacks.onOpenFeedback('api_down');
-      } else {
-        this.callbacks.onOpenFeedback('discrepancy');
-      }
     });
 
     this.element.querySelector('#header-theme-btn')?.addEventListener('click', () => {
@@ -358,10 +345,6 @@ export class Header {
       syncFaviconWithTheme(next);
       window.dispatchEvent(new CustomEvent('themechange', { detail: { theme: next } }));
       this.render();
-    });
-
-    this.element.querySelector('#header-mobile-view-btn')?.addEventListener('click', () => {
-      this.callbacks.onToggleMobileView();
     });
   }
 }

@@ -52,10 +52,17 @@ export class BatchConverter {
   private lastTransformedItems: ExportPointItem[] = [];
   private lastMapPoints: BatchMapPoint[] = [];
   private lastSummary: {
+    totalCount: number;
     inGridCount: number;
     outOfGridCount: number;
-    syntaxErrorCount: number;
+    noDataCount: number;
+    invalidInputCount: number;
+    invalidAngleCount: number;
+    count2D: number;
+    count3D: number;
   } | null = null;
+  private savedInputHeight?: string;
+  private savedOutputHeight?: string;
   private isProcessing: boolean = false;
 
   constructor(callbacks: BatchConverterCallbacks) {
@@ -94,6 +101,15 @@ export class BatchConverter {
 
   public getElement(): HTMLElement {
     return this.container;
+  }
+
+  public clear(): void {
+    this.inputText = '';
+    this.outputText = '';
+    this.lastTransformedItems = [];
+    this.lastMapPoints = [];
+    this.lastSummary = null;
+    this.render();
   }
 
   public setDirection(op: TransformationOp): void {
@@ -179,6 +195,9 @@ export class BatchConverter {
 
       let validCount = 0;
       let outOfGridCount = 0;
+      let noDataCount = 0;
+      let count2D = 0;
+      let count3D = 0;
       let validRowIndex = 0;
       let pointIndex = 0;
 
@@ -192,7 +211,14 @@ export class BatchConverter {
           continue;
         }
         if (row.error) {
-          outputLines.push(`${row.rawLine} # Error: ${row.error}`);
+          const commentText = row.errorType === 'invalid_angle' ? '# Invalid angle' : '# Invalid input';
+          outputLines.push(row.pointId ? `${row.pointId}, ${commentText}` : commentText);
+          items.push({
+            pointId: row.pointId || `Point ${pointIndex + 1}`,
+            coords: [],
+            warning: row.errorType === 'invalid_angle' ? 'Invalid angle' : 'Invalid input',
+            isGeo: this.op === 'Stereo70ToETRS89',
+          });
           continue;
         }
 
@@ -205,7 +231,11 @@ export class BatchConverter {
           apiRes.warning === 'Out of grid' || apiRes.warning === 'No data on grid';
 
         if (isUntransformable) {
-          outOfGridCount++;
+          if (apiRes.warning === 'No data on grid') {
+            noDataCount++;
+          } else {
+            outOfGridCount++;
+          }
           const warnComment = `# ${apiRes.warning}`;
           outputLines.push(row.pointId ? `${row.pointId}, ${warnComment}` : warnComment);
           items.push({
@@ -218,6 +248,11 @@ export class BatchConverter {
         }
 
         validCount++;
+        if (row.coords.length >= 3) {
+          count3D++;
+        } else {
+          count2D++;
+        }
 
         const item: ExportPointItem = {
           pointId: pointLabel,
@@ -319,10 +354,25 @@ export class BatchConverter {
       this.outputText = outputLines.join('\n');
       this.lastTransformedItems = items;
       this.lastMapPoints = mapPoints;
+      let invalidInputCount = 0;
+      let invalidAngleCount = 0;
+      for (const r of syntaxErrorRows) {
+        if (r.errorType === 'invalid_angle') {
+          invalidAngleCount++;
+        } else {
+          invalidInputCount++;
+        }
+      }
+
       this.lastSummary = {
+        totalCount: validRows.length + syntaxErrorRows.length,
         inGridCount: validCount,
         outOfGridCount: outOfGridCount,
-        syntaxErrorCount: syntaxErrorRows.length,
+        noDataCount: noDataCount,
+        invalidInputCount,
+        invalidAngleCount,
+        count2D,
+        count3D,
       };
 
       this.callbacks.onPointsPlotted(mapPoints);
@@ -336,134 +386,208 @@ export class BatchConverter {
     }
   }
 
+  private captureTextareaHeights(): void {
+    const inputArea = this.container.querySelector('#batch-input-area') as HTMLTextAreaElement | null;
+    if (inputArea && inputArea.style.height) {
+      this.savedInputHeight = inputArea.style.height;
+    }
+    const outputArea = this.container.querySelector('#batch-output-area') as HTMLTextAreaElement | null;
+    if (outputArea && outputArea.style.height) {
+      this.savedOutputHeight = outputArea.style.height;
+    }
+  }
+
+  private restoreTextareaHeights(): void {
+    if (this.savedInputHeight) {
+      const inputArea = this.container.querySelector('#batch-input-area') as HTMLTextAreaElement | null;
+      if (inputArea) inputArea.style.height = this.savedInputHeight;
+    }
+    if (this.savedOutputHeight) {
+      const outputArea = this.container.querySelector('#batch-output-area') as HTMLTextAreaElement | null;
+      if (outputArea) outputArea.style.height = this.savedOutputHeight;
+    }
+  }
+
   private render(): void {
+    this.captureTextareaHeights();
+
     this.container.innerHTML = `
-      <div class="studio-card">
-        <!-- Vertical Stack: Input Textarea with Direction-Aware Dynamic Placeholder -->
-        <div class="form-group" style="margin-bottom: 12px;">
-          <label class="form-label">${t('batch.inputLabel')}</label>
+      <!-- Card 1: Input Section -->
+      <div class="studio-card" role="group" aria-label="${t('batch.inputLabel')}">
+        <div class="section-micro-label">${t('batch.inputLabel')}</div>
+        <div class="form-group margin-bottom-none">
           <textarea 
-            class="form-input mono" 
+            class="form-input mono batch-textarea" 
             id="batch-input-area" 
             aria-label="${t('batch.inputLabel')}"
             rows="6" 
             placeholder="${this.getDynamicPlaceholder()}"
-            style="resize: vertical; font-size: 12px; line-height: 1.4;"
+            ${this.isProcessing ? 'disabled readonly' : ''}
           >${this.inputText}</textarea>
         </div>
+      </div>
 
-        <!-- Transform Primary Button -->
-        <button class="btn btn-primary" id="batch-transform-btn" style="width: 100%; margin-bottom: ${this.outputText ? '16px' : '0'};">
+      <!-- Active Separator Button between Input & Output -->
+      <div class="transform-action-row">
+        <button class="btn btn-primary" id="batch-transform-btn" ${this.isProcessing ? 'disabled' : ''}>
           <span>${this.isProcessing ? t('batch.calculating') : t('batch.transformBtn')}</span>
         </button>
+      </div>
 
-        <!-- Output Results Area -->
-        ${
-          this.outputText
-            ? `
-          <div class="form-group" style="margin-bottom: 10px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-              <label class="form-label" style="margin-bottom: 0;">${t('batch.outputLabel')}</label>
-              <div id="batch-copy-results-slot"></div>
-            </div>
-            <textarea 
-              class="form-input mono" 
-              id="batch-output-area" 
-              aria-label="${t('batch.outputLabel')}"
-              rows="6" 
-              readonly 
-              style="resize: vertical; font-size: 12px; line-height: 1.4; background-color: var(--bg-surface-elevated);"
-            >${this.outputText}</textarea>
-          </div>
+      <!-- Card 2: Output Section -->
+      <div class="studio-card result-card" role="group" aria-label="${t('batch.outputLabel')}">
+        <div class="flex-between-center margin-bottom-sm">
+          <div class="section-micro-label">${t('batch.outputLabel')}</div>
+          <div id="batch-copy-results-slot"></div>
+        </div>
+        <div class="form-group margin-bottom-none">
+          <textarea 
+            class="form-input mono batch-textarea batch-textarea-readonly" 
+            id="batch-output-area" 
+            aria-label="${t('batch.outputLabel')}"
+            rows="6" 
+            readonly 
+          >${this.outputText}</textarea>
+        </div>
 
-          <!-- Standardized Quality Report Widget -->
-          ${
-            this.lastSummary
-              ? `
-            <div class="quality-report-card" style="margin-bottom: 12px;">
-              <div class="quality-report-row">
-                <div class="quality-report-badges">
-                  <span class="status-pill success">✓ ${t('quality.inGrid')}: ${this.lastSummary.inGridCount}</span>
-                  ${
-                    this.lastSummary.outOfGridCount > 0
-                      ? `<span class="status-pill warning">⚠ ${t('quality.outsideGrid')}: ${this.lastSummary.outOfGridCount}</span>`
-                      : ''
-                  }
-                  ${
-                    this.lastSummary.syntaxErrorCount > 0
-                      ? `<span class="status-pill danger">✕ ${t('quality.syntaxErrors', { count: this.lastSummary.syntaxErrorCount })}</span>`
-                      : ''
-                  }
-                </div>
-              </div>
-            </div>
-          `
-              : ''
-          }
-
-          <!-- Relocated Export Buttons below Output -->
-          <div class="download-group">
-            <span class="download-group-label">${t('batch.downloadAs')}</span>
-            <div style="display: flex; gap: 6px;">
-              <button class="btn btn-secondary" id="batch-export-csv" ${this.lastTransformedItems.length === 0 ? 'disabled' : ''} style="padding: 6px 12px; font-size: 12px;">
-                ${t('batch.downloadCSV')}
-              </button>
-              <button class="btn btn-secondary" id="batch-export-geojson" ${this.lastTransformedItems.length === 0 ? 'disabled' : ''} style="padding: 6px 12px; font-size: 12px;">
-                ${t('batch.downloadGeoJSON')}
-              </button>
-              <button class="btn btn-secondary" id="batch-export-dxf" ${this.lastTransformedItems.length === 0 ? 'disabled' : ''} style="padding: 6px 12px; font-size: 12px;">
-                ${t('batch.downloadDXF')}
-              </button>
-            </div>
-          </div>
-
-          <!-- Decoupled Map Navigation Actions on its own Bottom-Right Line -->
-          <div class="action-footer-right" style="display: flex; gap: 8px; justify-content: flex-end; width: 100%; margin-top: 10px;">
-            <button 
-              class="btn btn-outline center-map-btn" 
-              id="batch-center-map-btn" 
-              ${this.lastMapPoints.length === 0 ? 'disabled' : ''} 
-              style="padding: 4px 10px; font-size: 11.5px;"
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="10"></circle>
-                <line x1="22" y1="12" x2="18" y2="12"></line>
-                <line x1="6" y1="12" x2="2" y2="12"></line>
-                <line x1="12" y1="6" x2="12" y2="2"></line>
-                <line x1="12" y1="22" x2="12" y2="18"></line>
-              </svg>
-              <span>${t('common.centerOnMap')}</span>
+        <!-- Export Buttons inside Output Card -->
+        <div class="download-group">
+          <span class="download-group-label">${t('batch.downloadAs')}</span>
+          <div class="flex-row-gap-sm">
+            <button class="btn btn-secondary btn-secondary-action" id="batch-export-csv" ${this.lastTransformedItems.length === 0 ? 'disabled' : ''}>
+              ${t('batch.downloadCSV')}
             </button>
-            <button 
-              class="btn btn-outline zoom-extents-btn" 
-              id="batch-zoom-extents-btn" 
-              ${this.lastMapPoints.length === 0 ? 'disabled' : ''} 
-              style="padding: 4px 10px; font-size: 11.5px;"
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="11" cy="11" r="8"></circle>
-                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                <line x1="11" y1="8" x2="11" y2="14"></line>
-                <line x1="8" y1="11" x2="14" y2="11"></line>
-              </svg>
-              <span>${t('common.zoomToExtents')}</span>
+            <button class="btn btn-secondary btn-secondary-action" id="batch-export-geojson" ${this.lastTransformedItems.length === 0 ? 'disabled' : ''}>
+              ${t('batch.downloadGeoJSON')}
+            </button>
+            <button class="btn btn-secondary btn-secondary-action" id="batch-export-dxf" ${this.lastTransformedItems.length === 0 ? 'disabled' : ''}>
+              ${t('batch.downloadDXF')}
             </button>
           </div>
-        `
-            : ''
-        }
+        </div>
+      </div>
+
+      <!-- Card 3: Report Section -->
+      <div class="studio-card report-card" role="group" aria-label="${t('quality.sectionTitle')}">
+        <div class="section-micro-label">${t('quality.sectionTitle')}</div>
+        <div class="quality-report-content flex-column-gap-sm">
+          <!-- Top Row: Coordinates -->
+          <div class="quality-report-row">
+            <span class="quality-label">${t('quality.sectionCoords')}</span>
+            <div class="quality-report-badges">
+              <span class="status-pill status-pill-neutral">
+                ${t('quality.total')} (${this.lastSummary ? this.lastSummary.totalCount : 0})
+              </span>
+              <span class="status-pill status-pill-neutral">
+                ${t('quality.dim2D')} (${this.lastSummary ? this.lastSummary.count2D : 0})
+              </span>
+              <span class="status-pill status-pill-neutral">
+                ${t('quality.dim3D')} (${this.lastSummary ? this.lastSummary.count3D : 0})
+              </span>
+            </div>
+          </div>
+
+          <!-- Discrete Dashed Separator Line -->
+          <div class="quality-report-divider-dashed"></div>
+
+          <!-- Bottom Row: Transformation -->
+          <div class="quality-report-row">
+            <span class="quality-label">${t('quality.sectionTransform')}</span>
+            <div class="quality-report-badges">
+              ${
+                this.lastSummary && this.lastSummary.inGridCount > 0
+                  ? `<span class="status-pill success">${t('quality.valid')} (${this.lastSummary.inGridCount})</span>`
+                  : ''
+              }
+              ${
+                this.lastSummary && this.lastSummary.outOfGridCount > 0
+                  ? `<span class="status-pill warning">${t('quality.outsideGrid')} (${this.lastSummary.outOfGridCount})</span>`
+                  : ''
+              }
+              ${
+                this.lastSummary && this.lastSummary.noDataCount > 0
+                  ? `<span class="status-pill warning">${t('quality.noGridData')} (${this.lastSummary.noDataCount})</span>`
+                  : ''
+              }
+              ${
+                this.lastSummary && this.lastSummary.invalidAngleCount > 0
+                  ? `<span class="status-pill danger">${t('quality.invalidAngle')} (${this.lastSummary.invalidAngleCount})</span>`
+                  : ''
+              }
+              ${
+                this.lastSummary && this.lastSummary.invalidInputCount > 0
+                  ? `<span class="status-pill danger">${t('quality.invalidInput')} (${this.lastSummary.invalidInputCount})</span>`
+                  : ''
+              }
+              ${
+                !this.lastSummary
+                  ? `<span class="status-pill neutral">${t('quality.readyToTransform')}</span>`
+                  : ''
+              }
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Decoupled Map Navigation Dock -->
+      <div class="workbench-actions-dock">
+        <button 
+          class="btn btn-outline center-map-btn btn-secondary-action" 
+          id="batch-center-map-btn" 
+          ${this.lastMapPoints.length === 0 ? 'disabled' : ''}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="22" y1="12" x2="18" y2="12"></line>
+            <line x1="6" y1="12" x2="2" y2="12"></line>
+            <line x1="12" y1="6" x2="12" y2="2"></line>
+            <line x1="12" y1="22" x2="12" y2="18"></line>
+          </svg>
+          <span>${t('common.centerOnMap')}</span>
+        </button>
+        <button 
+          class="btn btn-outline zoom-extents-btn btn-secondary-action" 
+          id="batch-zoom-extents-btn" 
+          ${this.lastMapPoints.length === 0 ? 'disabled' : ''}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            <line x1="11" y1="8" x2="11" y2="14"></line>
+            <line x1="8" y1="11" x2="14" y2="11"></line>
+          </svg>
+          <span>${t('common.zoomToExtents')}</span>
+        </button>
       </div>
     `;
 
     this.attachEventListeners();
+    this.restoreTextareaHeights();
   }
 
   private attachEventListeners(): void {
-    // Input sync
-    const inputArea = this.container.querySelector('#batch-input-area') as HTMLTextAreaElement;
+    // Input sync and scrollbar hover cursor detection
+    const inputArea = this.container.querySelector('#batch-input-area') as HTMLTextAreaElement | null;
     if (inputArea) {
+      inputArea.addEventListener('mousemove', (e: MouseEvent) => {
+        const isOverScrollbar = e.offsetX > inputArea.clientWidth || e.offsetY > inputArea.clientHeight;
+        inputArea.style.cursor = isOverScrollbar ? 'default' : 'text';
+      });
+      inputArea.addEventListener('mouseleave', () => {
+        inputArea.style.cursor = 'text';
+      });
+      inputArea.addEventListener('mouseup', () => {
+        if (inputArea.style.height) this.savedInputHeight = inputArea.style.height;
+      });
       inputArea.addEventListener('input', () => {
         this.inputText = inputArea.value;
+      });
+    }
+
+    const outputArea = this.container.querySelector('#batch-output-area') as HTMLTextAreaElement | null;
+    if (outputArea) {
+      outputArea.addEventListener('mouseup', () => {
+        if (outputArea.style.height) this.savedOutputHeight = outputArea.style.height;
       });
     }
 
@@ -504,22 +628,19 @@ export class BatchConverter {
       }
     });
 
-    // Export buttons
+    // Export buttons: Native download triggers silently without premature toasts
     this.container.querySelector('#batch-export-csv')?.addEventListener('click', () => {
       const detectedDelim = this.delimiter === 'auto' ? detectDelimiter(this.inputText.split(/\r?\n/)) : this.delimiter;
       const csvSep = detectedDelim === ' ' ? ',' : detectedDelim;
       exportToCSV(this.lastTransformedItems, csvSep, this.order);
-      showToast(t('batch.csvDownloaded'), 'success');
     });
 
     this.container.querySelector('#batch-export-geojson')?.addEventListener('click', () => {
       exportToGeoJSON(this.lastTransformedItems);
-      showToast(t('batch.geoJsonDownloaded'), 'success');
     });
 
     this.container.querySelector('#batch-export-dxf')?.addEventListener('click', () => {
       exportToDXF(this.lastTransformedItems);
-      showToast(t('batch.dxfDownloaded'), 'success');
     });
   }
 }

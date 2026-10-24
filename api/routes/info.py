@@ -293,7 +293,7 @@ async def get_telemetry_timeline(
         params = []
 
         if from_date:
-            filters.append("c.period_start >= ?")
+            filters.append("c.period_end >= ?")
             params.append(from_date)
         if to_date:
             filters.append("c.period_start <= ?")
@@ -413,6 +413,17 @@ async def get_telemetry_timeline(
             b_calls["total"] += c_int
             b_points["total"] += p_int
 
+        # Query effective period boundaries from matched rows
+        bounds_sql = f"""
+            SELECT MIN(c.period_start), MAX(c.period_end)
+            FROM computation_usage c
+            {where_clause}
+        """
+        cursor.execute(bounds_sql, params)
+        b_row = cursor.fetchone()
+        effective_from = b_row[0] if b_row and b_row[0] else None
+        effective_to = b_row[1] if b_row and b_row[1] else None
+
         conn.close()
 
         # Format series items sorted chronologically
@@ -453,6 +464,10 @@ async def get_telemetry_timeline(
             days_count = len(all_dates)
             period_count = len(series_items)
 
+        # Ensure resolved_from is a full YYYY-MM-DD date string even if monthly aggregation was used
+        if resolved_from and len(resolved_from) == 7:
+            resolved_from = f"{resolved_from}-01"
+
         avg_ratio = round(total_points_all / total_calls_all, 2) if total_calls_all > 0 else 0.0
 
         return TimelineResponse(
@@ -462,6 +477,8 @@ async def get_telemetry_timeline(
                 avg_points_per_call=avg_ratio,
                 from_date=resolved_from,
                 to_date=resolved_to,
+                effective_from_date=effective_from,
+                effective_to_date=effective_to,
                 days_count=days_count,
                 period_count=period_count,
             ),
@@ -478,6 +495,8 @@ async def get_telemetry_timeline(
                 avg_points_per_call=0.0,
                 from_date=from_date,
                 to_date=to_date,
+                effective_from_date=from_date,
+                effective_to_date=to_date,
                 days_count=0,
                 period_count=0,
             ),
@@ -528,6 +547,8 @@ async def get_telemetry_spatial_matrix(
             metric=metric,
             from_date=from_date,
             to_date=to_date,
+            effective_from_date=from_date,
+            effective_to_date=to_date,
             quadrants=default_quadrants,
         ),
         cells=[],
@@ -567,7 +588,7 @@ async def get_telemetry_spatial_matrix(
 
         # Metric aggregation expression
         # 'points' aggregates coordinate count; 'calls' aggregates cell transformation event occurrences
-        metric_expr = "SUM(count)" if metric == "points" else "COUNT(*)"
+        metric_expr = "SUM(count)" if metric == "points" else "SUM(count_calls)"
 
         # Query aggregating ~1km (lat_deg, lat_grad) to 0.1 degree bins
         query = f"""
@@ -583,6 +604,18 @@ async def get_telemetry_spatial_matrix(
         """
         cursor.execute(query, params)
         rows = cursor.fetchall()
+
+        # Query effective period boundaries from matched rows
+        bounds_sql = f"""
+            SELECT MIN(period_start), MAX(period_end)
+            FROM spatial_usage
+            {where_sql}
+        """
+        cursor.execute(bounds_sql, params)
+        b_row = cursor.fetchone()
+        effective_from = b_row[0] if b_row and b_row[0] else from_date
+        effective_to = b_row[1] if b_row and b_row[1] else to_date
+
         conn.close()
 
         if not rows:
@@ -661,6 +694,8 @@ async def get_telemetry_spatial_matrix(
                 metric=metric,
                 from_date=from_date,
                 to_date=to_date,
+                effective_from_date=effective_from,
+                effective_to_date=effective_to,
                 quadrants=quadrants,
             ),
             cells=cells,

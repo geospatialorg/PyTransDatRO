@@ -53,13 +53,12 @@ When the FastAPI server starts (`python -m uvicorn api.main:app`), it automatica
 
 ```
 webapp/
-├── design_guide.md         # Single source of truth design system & styling manual
 ├── index.html              # HTML entrypoint with preloaded fonts and layout shells
 ├── package.json            # Node dependencies and build scripts
 ├── playwright.config.ts    # Chromium Playwright E2E test runner configuration & webServer orchestration
 ├── tsconfig.json           # Strict TypeScript configuration
 ├── vite.config.ts          # Vite build options and dev server API proxy
-├── e2e/                    # Playwright end-to-end browser test suite (19 tests)
+├── e2e/                    # Playwright end-to-end browser test suite (70 tests across 12 specs)
 │   ├── fixtures.ts         # Offline tile & font stubs and page helpers
 │   ├── helpers/            # Shared locator and assertion helpers
 │   ├── smoke.spec.ts       # Critical DOM shell and initial layout smoke tests
@@ -69,6 +68,9 @@ webapp/
 │   ├── map.spec.ts         # Map zoom constraints, layer toggling, centering vs fit-bounds
 │   ├── i18n.spec.ts        # Dynamic RO/EN language switching, UI translation reactivity
 │   ├── errors.spec.ts      # Syntax errors, out-of-grid badges, API rate limits
+│   ├── computation.spec.ts # Computation timeline dashboard, KPI cards, Active Period deck, UK date format
+│   ├── spatial.spec.ts     # Spatial density heatmap matrix, quadrant distribution, Active Period deck, UK date format
+│   ├── lifecycle.spec.ts   # Client SPA lifecycle, modal management, and deep links
 │   ├── legacy.spec.ts      # Legacy TransdatOnline historical telemetry subpage
 │   └── referencePoints.ts  # Reference coordinate fixtures across Romania
 └── src/
@@ -120,6 +122,7 @@ webapp/
         ├── pointParser.ts  # Auto-delimiter detector & strict coordinate validator
         ├── exporters.ts    # Client-side CSV, GeoJSON, and AutoCAD DXF generator
         ├── gridBounds.ts   # Coarse SPG grid envelope union validation
+        ├── numberFormat.ts # Locale-aware number & compact formatter for telemetry (RO comma, EN dot)
         └── toast.ts        # Non-intrusive floating toast notifications
 ```
 
@@ -133,7 +136,7 @@ webapp/
 
 2. **GitHub Primer Dual-Theme Palette & Subtle Surface + Border (`#8`) Primary Button**:
    - Built with pure CSS custom properties (`src/style/variables.css`) parameterized by `data-theme="dark|light"`.
-   - Detailed specifications and the 24-item Component Catalogue (`C1`–`C6`) are documented in [design_guide.md](design_guide.md).
+   - Detailed design specifications and the 27 Component Archetypes across 9 functional categories are documented in [`docs/webapp/design_system.md`](../docs/webapp/design_system.md) and [`docs/webapp/archetypes.md`](../docs/webapp/archetypes.md).
    - **GitHub Primer Neutral Palette**:
      - **Dark Theme (`data-theme="dark"`)**: `--bg-app: #0d1117`, `--bg-surface: #161b22`, `--bg-surface-elevated: #21262d`, `--border-subtle: #21262d`, `--text-main: #e6edf3`, `--btn-primary-bg: #1f2630`, `--btn-primary-border: #48586a`.
      - **Light Theme (`data-theme="light"`)**: `--bg-app: #f6f8fa`, `--bg-surface: #ffffff`, `--bg-surface-elevated: #f3f4f6`, `--border-subtle: #d0d7de`, `--text-main: #1f2328`, `--btn-primary-bg: #eaeef2`, `--btn-primary-border: #8c959f`.
@@ -226,20 +229,34 @@ npm run build
 ```
 
 ### Unit Tests (Vitest)
-The unit test suite executes 68 tests in $< 350\text{ ms}$ covering:
+The unit test suite executes 80 tests in $< 400\text{ ms}$ covering:
 - **`dmsParser.test.ts`**: Unspaced DMS parsing (`DD°MM'SS.SSSSS"`), whitespace handling, degree symbol variations, sexagesimal conversion.
 - **`pointParser.test.ts`**: Delimiter detection (tabs, spaces, commas, semicolons), point IDs, coordinate ordering (`NE(H)` vs `EN(H)`).
+- **`numberFormat.test.ts`**: Romanian comma `,` decimal formatting across telemetry and UI display surfaces while strictly preserving dot-decimal notation for CAD/GIS coordinate outputs.
 - **`gridBounds.test.ts`**: Romania envelope pre-flight bounding box validation.
 - **`exporters.test.ts`**: Pure client-side CSV, GeoJSON, and AutoCAD DXF R12 generator output fidelity.
 - **`ui.test.ts`**: Accessible UI factory helper functions (`renderDropdownMenu` with active checkmarks, `renderSegmentedControl`, etc.) and the dual-theme `Map Projection Graticule` brand logo (`getLogoInlineSvg`, `getLogoStandaloneSvg`).
 
 ### End-to-End Browser Tests (Playwright)
-The Playwright suite executes 19 browser specs against an isolated FastAPI backend (`http://127.0.0.1:8100`) and compiled bundle (`dist-e2e/`), with offline network stubs for map tiles and fonts:
+The Playwright suite executes 70 browser specs across 12 test suites against an isolated FastAPI backend (`http://127.0.0.1:8100`) and compiled bundle (`dist-e2e/`), with offline network stubs for map tiles and fonts:
 - **`smoke.spec.ts`**: DOM shell, layout containers, and initial component mounting.
-- **`point.spec.ts`**: Single-point coordinate conversions, direction toggling, angular units, copy buttons, and map pin popups.
-- **`batch.spec.ts`**: Delimiter detection, coordinate swapping, comment/blank line preservation, out-of-grid row suppression, and export triggers.
-- **`file.spec.ts`**: File dropzone, queue management, streaming transformation progress, and batch downloads.
+- **`point.spec.ts`**: Single-point coordinate conversions, direction toggling, angular units, copy buttons, map pin popups, untransformable map click coordinate erasing, and layer color preservation with pulse animation.
+- **`batch.spec.ts`**: Delimiter detection, coordinate swapping, comment/blank line preservation, error row formatting (`PointId, # [reason]`), textarea vertical height persistence, scrollbar hover cursor, and export triggers.
+- **`file.spec.ts`**: File dropzone, queue management, streaming transformation progress, and batch downloads without premature toasts.
 - **`map.spec.ts`**: Zoom constraints, Home button, layer visibility toggles, measurement ruler, and center vs fit-bounds actions.
 - **`i18n.spec.ts`**: Reactive Romanian (`RO`) / English (`EN`) dropdown switching, attribute updates, and localStorage persistence.
-- **`errors.spec.ts`**: Pre-flight validation, syntax errors, "No data on grid" badges, and rate-limit error displays.
+- **`errors.spec.ts`**: Pre-flight validation, Two-Section Quality Report card layout (`Coordinates` top, dashed divider, `Transformation` bottom), impossible angle detection, and rate-limit error displays.
+- **`legacy.spec.ts`**: Legacy TransdatOnline historical telemetry subpage, SVG curve rendering, timeline series toggles, and date presets.
+- **`lifecycle.spec.ts`**: Brand Logo fresh state reset, soft title navigation, offline alert banner & health dot reactivity, floating panels (Grid Metadata search filter, Geodetic Help live benchmark card), and bot challenge verification.
+- **`computation.spec.ts`**: Usage Computation subpage, centered Archetype 8.1 KPI cards, calendar date range clamping, and segmented source curves.
+- **`spatial.spec.ts`**: Usage Spatial subpage, quadrant breakdown cards, and 0.1° punchcard matrix.
 
+
+
+---
+
+## 9. Single-Source-of-Truth Versioning & Build Injection
+
+- The frontend package version is declared in `webapp/package.json` and synchronized across repository metadata via `tools/bump_version.py`.
+- At compile time, Vite injects `__APP_VERSION__` via `define` in `vite.config.ts`.
+- Exposed centrally in `src/config.ts` (`APP_CONFIG.appVersion`) and rendered reactively across the brand header badge (`v${APP_CONFIG.appVersion}`) and telemetry/feedback reporting payloads.

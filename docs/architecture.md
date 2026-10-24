@@ -55,7 +55,7 @@ A responsive Web GIS client interface built with Vite, TypeScript, Vanilla CSS, 
 - **Reusable UI Factory Functions (`webapp/src/ui/`)**: Accessible component factories (`renderDropdownMenu`, `renderSegmentedControl`, `renderSelect`, `renderCopyBadge`, `renderCopyButton`) enforcing ARIA attributes and keyboard navigation.
 - **Client-Side Utilities**: DMS parsing, auto-delimited point parsing, Point ID preservation, and instant multi-format exports (CSV, GeoJSON, AutoCAD DXF).
 - **Production Serving**: Hosted via high-performance Nginx reverse proxy serving the Vite static bundle while proxying API endpoints to the backend container.
-- See [docs/web_app.md](web_app.md) for full architectural specifications and [webapp/README.md](../webapp/README.md) for frontend development commands.
+- See [docs/webapp/](webapp/README.md) for full architectural specifications, design system tokens, component archetypes, and actionable inventory, and [webapp/README.md](../webapp/README.md) for frontend development commands.
 
 ## Deployment & Container Architecture (`docs/deployment.md`)
 Production deployments follow an environment-agnostic 2-container topology orchestrated by Docker Compose:
@@ -64,11 +64,20 @@ Production deployments follow an environment-agnostic 2-container topology orche
 - **Universal Agnosticism**: Configuration is strictly decoupled using `.env.example` templates and host-local untracked `.env` files.
 - See [docs/deployment.md](deployment.md) for full container topology, reverse proxy rules, and operational runbooks.
 
+## Version Management & Release Automation
+The project maintains a strict Single-Source-of-Truth (SSoT) pattern for application and library versions:
+- **Core Version Definition**: Tracked synchronously across `pytransdatro/__init__.py` (`__version__`), `pyproject.toml` (`version`), and `webapp/package.json` (`version`) in accordance with Semantic Versioning 2.0.0.
+- **Dynamic Runtime Exposure**:
+  - **FastAPI Backend**: `FastAPI(..., version=pytransdatro.__version__)` and `/health` probe dynamically export `pytransdatro.__version__`.
+  - **Vite Web Application**: `webapp/vite.config.ts` injects `__APP_VERSION__` from `package.json` at build time into `APP_CONFIG.appVersion`, dynamically rendered across the UI brand badge (`v${APP_CONFIG.appVersion}`) and feedback reports.
+- **Synchronization Tooling**: `tools/bump_version.py` validates SemVer compliance, verifies cross-file parity (`--check`), and atomically updates all metadata files.
+- **Release Git Tagging**: Managed via the `task-commit` agent skill, creating conventional release commits (`chore(release): v<version>`) and annotated Git tags (`v<version>`).
+
 ## Quality Assurance & Testing Matrix
 The project enforces a cross-layer automated testing and verification strategy:
 - **Core Geodetic Unit Suite (`tests/test_trans_ro.py`)**: 54 tests covering forward, inverse, 2D/3D roundtrips, half-grid verification, 6-point extended dual-CRS bounding boxes, `OutOfGrid2DErr` vs `OutOfGrid1DErr`, 4-stage `transform_batch` fault isolation, strict DMS grammar, and no-data boundary exceptions.
-- **Web API & Telemetry Suite (`tests/test_api_*.py`, `tests/test_telemetry.py`)**: 64 tests covering modern REST endpoints, Option B batch fault isolation, legacy servlet emulation, sliding-window rate limiting, configuration defaults, feedback mailer, and SQLite WAL telemetry persistence (118 Python tests total).
-- **Frontend Utility & UI Suite (`webapp/src/utils/*.test.ts`, `webapp/src/ui/*.test.ts`)**: 67 unit tests executed via Vitest verifying unspaced DMS parsing, coordinate auto-delimiters, Romania grid envelope bounds, pure string exporter generators, and accessible UI controls.
+- **Web API & Telemetry Suite (`tests/test_api_*.py`, `tests/test_telemetry.py`, `tests/test_logging.py`, `tests/test_config.py`, `tests/test_feedback.py`)**: 146 tests covering modern REST endpoints, interval overlap period snapping, sentinel time windows, Option B batch fault isolation, legacy servlet emulation, sliding-window rate limiting, configuration defaults, feedback mailer, and SQLite WAL telemetry persistence (200 Python tests total).
+- **Frontend Utility & UI Suite (`webapp/src/utils/*.test.ts`, `webapp/src/ui/*.test.ts`)**: 80 unit tests executed via Vitest verifying unspaced DMS parsing, coordinate auto-delimiters, Romania grid envelope bounds, pure string exporter generators, and accessible UI controls.
 - **Official ANCPI Benchmark Verification (`tools/generate_ancpi_comparison_reports.py`)**: Automated verification against 9,046 national control points ensuring $< 10^{-9}$ tolerance and zero functional regression.
 - **Static Analysis & Linters**: Zero warnings across Ruff (`ruff check .`, `ruff format --check .`) and TypeScript compiler (`tsc`).
 

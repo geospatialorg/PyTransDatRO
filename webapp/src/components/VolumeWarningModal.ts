@@ -1,4 +1,5 @@
 import { t } from '../i18n';
+import { APP_CONFIG } from '../config';
 
 export class VolumeWarningModal {
   private backdrop: HTMLElement | null = null;
@@ -15,23 +16,23 @@ export class VolumeWarningModal {
     this.backdrop.innerHTML = `
       <div class="modal-dialog">
         <div class="modal-header">
-          <div class="modal-title" style="color: var(--color-warning);">⚠ ${t('volumeWarning.title')}</div>
-          <button class="btn-icon" id="vw-close-icon">✕</button>
+          <div class="modal-title warning">${t('volumeWarning.title')}</div>
+          <button class="btn-icon modal-close-btn" id="vw-close-icon" title="${t('common.close') || 'Close'}">✕</button>
         </div>
         <div class="modal-body">
-          <p style="font-size: 13px; line-height: 1.6; color: var(--text-main); margin-bottom: 20px;">
+          <p class="modal-body-text">
             ${t('volumeWarning.message', { count })}
           </p>
 
-          <div style="display: flex; flex-direction: column; gap: 10px;">
+          <div class="flex-column-gap-md">
             <button class="btn btn-primary" id="vw-sample-btn">
-              ⚡ ${t('volumeWarning.btnSample')}
+              ${t('volumeWarning.btnSample', { sample: APP_CONFIG.batchSampleSize.toLocaleString() })}
             </button>
             <button class="btn btn-secondary" id="vw-all-btn">
-              ⚠ ${t('volumeWarning.btnRenderAll')}
+              ${t('volumeWarning.btnRenderAll')}
             </button>
             <button class="btn btn-outline" id="vw-skip-btn">
-              ✕ ${t('volumeWarning.btnSkip')}
+              ${t('volumeWarning.btnSkip')}
             </button>
           </div>
         </div>

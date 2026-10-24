@@ -33,6 +33,12 @@
   border: 1px solid rgba(239, 68, 68, 0.2);
 }
 
+.status-pill.neutral {
+  background-color: var(--bg-surface-elevated);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+}
+
 /* Technical Metric Field (Quasigeoid Height ζ = h - H) */
 /* INVARIANT: Physical measurement, not a status. Must NEVER be colored green/red/yellow. */
 .form-input.metric-field,
@@ -52,16 +58,21 @@ input.form-input[readonly].metric-field {
 .format-example-badge {
   font-family: var(--font-mono);
   font-size: 11px;
+  line-height: 1;
   color: var(--color-primary-light);
   background-color: var(--bg-surface-elevated);
   border: 1px solid var(--border-medium);
   border-radius: var(--radius-sm);
-  padding: 3px 7px;
+  padding: 0 8px;
+  height: 26px;
   user-select: all;
   cursor: pointer;
   transition: all var(--transition-fast);
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   white-space: nowrap;
+  box-sizing: border-box;
 }
 
 .format-example-badge:hover {
@@ -88,24 +99,18 @@ input.form-input[readonly].metric-field {
   user-select: none;
 }
 
-/* System Health Indicator Dot */
-button.health-dot {
-  padding: 0;
-  border: none;
-  background: none;
-}
-
+/* System Health Indicator Dot (Status-Only Indicator) */
 .health-dot {
   width: 7.5px;
   height: 7.5px;
   border-radius: 50%;
   display: inline-block;
-  cursor: pointer;
+  cursor: default;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .health-dot:hover {
-  transform: scale(1.25);
+  transform: scale(1.2);
 }
 
 .health-dot.online {
@@ -148,7 +153,7 @@ button.health-dot {
   color: var(--color-danger);
 }
 
-/* Standard Unified Quality Report Component */
+/* Standard Unified Quality Report Component (Two-Section Architecture) */
 .quality-report-card {
   background-color: var(--bg-surface-input);
   border: 1px solid var(--border-subtle);
@@ -156,9 +161,38 @@ button.health-dot {
   padding: 10px 12px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   font-size: 12px;
   margin-top: 14px;
+}
+
+.quality-report-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.quality-section-header,
+.quality-label {
+  font-size: 11.5px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text-dim);
+}
+
+.status-pill-neutral {
+  background-color: var(--bg-surface-readonly);
+  color: var(--text-muted);
+  border: 1px solid var(--border-medium);
+  font-weight: 500;
+}
+
+.quality-report-divider-dashed {
+  width: 100%;
+  height: 1px;
+  border-top: 1px dashed var(--border-subtle);
+  margin: 2px 0;
 }
 
 .quality-report-row {
@@ -174,6 +208,40 @@ button.health-dot {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.quality-report-subrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.quality-report-subrow .file-name {
+  font-size: 11px;
+  color: var(--text-muted);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quality-report-divider-dotted {
+  width: 100%;
+  height: 1px;
+  border-top: 1px dotted var(--border-subtle);
+  margin: 3px 0;
+}
+
+.quality-report-subrow.total-row {
+  padding-top: 2px;
+}
+
+.quality-report-subrow.total-row .total-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-main);
 }
 
 /* Batch Auto-Detection Badge */
@@ -255,14 +323,26 @@ button.health-dot {
   background-color: var(--color-success-bg);
 }
 
+.status-badge-card.success .status-badge-num {
+  color: var(--color-success);
+}
+
 .status-badge-card.warning {
   border-color: var(--color-warning);
   background-color: var(--color-warning-bg);
 }
 
+.status-badge-card.warning .status-badge-num {
+  color: var(--color-warning);
+}
+
 .status-badge-card.danger {
   border-color: var(--color-danger);
   background-color: var(--color-danger-bg);
+}
+
+.status-badge-card.danger .status-badge-num {
+  color: var(--color-danger);
 }
 
 .status-badge-num {

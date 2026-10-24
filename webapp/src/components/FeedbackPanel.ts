@@ -1,4 +1,5 @@
 import { t } from '../i18n';
+import { APP_CONFIG } from '../config';
 import { apiClient } from '../utils/apiClient';
 import { showToast } from '../utils/toast';
 
@@ -200,7 +201,7 @@ export class FeedbackPanel {
         report_type: this.currentType,
         description,
         client_timestamp: new Date().toISOString(),
-        app_version: t('app.version') || 'v2.1',
+        app_version: `v${APP_CONFIG.appVersion.replace(/^v/, '')}`,
         active_grid: this.activeGridInfo,
         honeypot,
       });
@@ -227,16 +228,13 @@ export class FeedbackPanel {
 
     if (this.isMinimized) {
       this.element.innerHTML = `
-        <div class="fgp-header" id="ffp-drag-handle">
-          <div class="fgp-title-cluster">
-            <svg class="fgp-header-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M2 3h12a1 1 0 011 1v8a1 1 0 01-1 1H4l-3 3V4a1 1 0 011-1z"/>
-            </svg>
-            <span class="fgp-title">${t('feedback.title')}</span>
+        <div class="drawer-header fgp-header" id="ffp-drag-handle">
+          <div class="drawer-title-cluster fgp-title-cluster">
+            <span class="drawer-title fgp-title">${t('feedback.title')}</span>
           </div>
-          <div class="fgp-header-actions">
-            <button class="btn-icon fgp-icon-btn" id="ffp-minimize-btn" title="Restore">□</button>
-            <button class="btn-icon fgp-icon-btn" id="ffp-close-btn" title="Close">✕</button>
+          <div class="drawer-header-actions fgp-header-actions">
+            <button class="btn-icon drawer-icon-btn fgp-icon-btn" id="ffp-minimize-btn" title="${t('common.restore')}">□</button>
+            <button class="btn-icon drawer-icon-btn fgp-icon-btn" id="ffp-close-btn" title="${t('common.close')}">✕</button>
           </div>
         </div>
       `;
@@ -247,81 +245,94 @@ export class FeedbackPanel {
 
     this.element.innerHTML = `
       <!-- Draggable Header -->
-      <div class="fgp-header" id="ffp-drag-handle">
-        <div class="fgp-title-cluster">
-          <svg class="fgp-header-icon" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M2 3h12a1 1 0 011 1v8a1 1 0 01-1 1H4l-3 3V4a1 1 0 011-1z"/>
-          </svg>
-          <span class="fgp-title">${t('feedback.title')}</span>
+      <div class="drawer-header fgp-header" id="ffp-drag-handle">
+        <div class="drawer-title-cluster fgp-title-cluster">
+          <span class="drawer-title fgp-title">${t('feedback.title')}</span>
         </div>
-        <div class="fgp-header-actions">
-          <button class="btn-icon fgp-icon-btn" id="ffp-minimize-btn" title="Minimize">_</button>
-          <button class="btn-icon fgp-icon-btn" id="ffp-close-btn" title="Close">✕</button>
+        <div class="drawer-header-actions fgp-header-actions">
+          <button class="btn-icon drawer-icon-btn fgp-icon-btn" id="ffp-minimize-btn" title="${t('common.minimize')}">─</button>
+          <button class="btn-icon drawer-icon-btn fgp-icon-btn" id="ffp-close-btn" title="${t('common.close')}">✕</button>
         </div>
       </div>
 
       <!-- Main Body -->
-      <div class="ffp-body">
-        <p class="ffp-desc">
-          ${t('feedback.desc')}
-        </p>
-
-        <!-- Report Type Selector -->
-        <div class="form-group" style="margin-bottom: 14px;">
-          <label class="form-label uppercase-label">${t('feedback.typeLabel')}</label>
-          <select class="form-input" id="fb-type-select">
-            <option value="discrepancy" ${this.currentType === 'discrepancy' ? 'selected' : ''}>${t('feedback.typeDiscrepancy')}</option>
-            <option value="grid_update" ${this.currentType === 'grid_update' ? 'selected' : ''}>${t('feedback.typeGridUpdate')}</option>
-            <option value="bug" ${this.currentType === 'bug' ? 'selected' : ''}>${t('feedback.typeBug')}</option>
-            <option value="feature" ${this.currentType === 'feature' ? 'selected' : ''}>${t('feedback.typeFeature')}</option>
-            <option value="api_down" ${this.currentType === 'api_down' ? 'selected' : ''}>${t('feedback.typeApiDown')}</option>
-          </select>
-        </div>
-
-        <!-- Detailed Description / Template Area -->
-        <div class="form-group" style="margin-bottom: 12px; flex: 1; display: flex; flex-direction: column;">
-          <div style="display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px;">
-            <label class="form-label uppercase-label" style="margin-bottom: 0;">${t('feedback.messageLabel')}</label>
-            <span class="ffp-template-hint">${t('feedback.templateHint')}</span>
+      <div class="drawer-body ffp-body">
+        <!-- Section 1: Feedback Content Card -->
+        <div class="content-card">
+          <div class="content-card-header">
+            <div class="content-card-title">${t('feedback.title')}</div>
+            <div class="content-card-subtitle">${t('feedback.desc')}</div>
           </div>
-          <textarea class="form-input mono ffp-textarea" id="fb-message-input" rows="8"></textarea>
+
+          <!-- Report Type Selector -->
+          <div class="form-group ffp-field-group">
+            <label class="form-label">${t('feedback.typeLabel')}</label>
+            <select class="form-select form-select-sm" id="fb-type-select">
+              <option value="discrepancy" ${this.currentType === 'discrepancy' ? 'selected' : ''}>${t('feedback.typeDiscrepancy')}</option>
+              <option value="grid_update" ${this.currentType === 'grid_update' ? 'selected' : ''}>${t('feedback.typeGridUpdate')}</option>
+              <option value="bug" ${this.currentType === 'bug' ? 'selected' : ''}>${t('feedback.typeBug')}</option>
+              <option value="feature" ${this.currentType === 'feature' ? 'selected' : ''}>${t('feedback.typeFeature')}</option>
+              <option value="api_down" ${this.currentType === 'api_down' ? 'selected' : ''}>${t('feedback.typeApiDown')}</option>
+            </select>
+          </div>
+
+          <!-- Detailed Description / Template Area -->
+          <div class="form-group ffp-message-group">
+            <div class="callout-box">
+              <span class="callout-title">${t('feedback.messageLabel')}</span>
+              <p class="callout-body">${t('feedback.templateHint')}</p>
+            </div>
+            <textarea class="form-input mono ffp-textarea" id="fb-message-input" rows="7"></textarea>
+          </div>
+
+          <!-- Dedicated Command Actions Row (Aligned Right) -->
+          <div class="ffp-actions-row">
+            <button type="button" class="btn btn-outline ffp-aux-btn" id="fb-reset-template-btn" title="Revert description to default template for this report type">
+              ${t('feedback.resetTemplateBtn')}
+            </button>
+            <button type="button" class="btn btn-outline ffp-aux-btn" id="fb-copy-btn" title="Copy report text to clipboard">
+              ${t('feedback.copyBtn')}
+            </button>
+            <button type="button" class="btn btn-outline ffp-aux-btn" id="fb-github-btn" title="Open as GitHub issue in a new tab">
+              ${t('feedback.openGithubBtn')}
+            </button>
+          </div>
         </div>
 
-        <!-- Dedicated Command Actions Row (Aligned Right) -->
-        <div class="ffp-actions-row">
-          <button type="button" class="btn btn-outline ffp-aux-btn" id="fb-reset-template-btn" title="Revert description to default template for this report type">
-            ${t('feedback.resetTemplateBtn')}
-          </button>
-          <button type="button" class="btn btn-outline ffp-aux-btn" id="fb-copy-btn" title="Copy report text to clipboard">
-            ${t('feedback.copyBtn')}
-          </button>
-          <button type="button" class="btn btn-outline ffp-aux-btn" id="fb-github-btn" title="Open as GitHub issue in a new tab">
-            ${t('feedback.openGithubBtn')}
-          </button>
-        </div>
+        <!-- Section 2: Human Verification Card -->
+        <div class="content-card">
+          <div class="content-card-header">
+            <div class="content-card-title">${t('feedback.mathLabel')}</div>
+            <div class="content-card-subtitle">${t('feedback.verificationSubtitle')}</div>
+          </div>
 
-        <!-- Zero-friction Bot Verification Row -->
-        <div class="ffp-verify-row">
-          <!-- Invisible Honeypot -->
-          <input type="text" id="fb-hp-verify" name="website_hp" style="position: absolute; left: -9999px; opacity: 0; pointer-events: none;" tabindex="-1" autocomplete="off" />
+          <!-- Zero-friction Bot Verification Row -->
+          <div class="ffp-verify-content">
+            <!-- Invisible Honeypot -->
+            <input type="text" id="fb-hp-verify" name="website_hp" class="ffp-honeypot" tabindex="-1" autocomplete="off" />
 
-          <!-- Lightweight Human Math Challenge -->
-          <div class="ffp-math-cluster">
-            <span class="ffp-math-label">${t('feedback.mathLabel')}</span>
-            <span class="ffp-math-expr mono">${this.mathNum1} + ${this.mathNum2} =</span>
-            <input type="number" class="form-input mono ffp-math-input" id="fb-math-input" placeholder="${t('feedback.mathPlaceholder')}" min="0" max="99" />
+            <!-- Lightweight Human Math Challenge -->
+            <div class="ffp-math-cluster">
+              <span class="ffp-math-expr mono">${this.mathNum1} + ${this.mathNum2}</span>
+              <span class="ffp-math-equals">=</span>
+              <input type="number" class="form-input mono ffp-math-input" id="fb-math-input" placeholder="${t('feedback.mathPlaceholder')}" min="0" max="99" />
+            </div>
           </div>
         </div>
       </div>
 
       <!-- Footer -->
       <div class="ffp-footer">
-        <button class="btn btn-secondary" id="fb-cancel-btn">Close</button>
-        <button class="btn btn-primary" id="fb-submit-btn">${t('feedback.submitBtn')}</button>
+        <button class="btn btn-secondary btn-sm" id="fb-cancel-btn">${t('common.close')}</button>
+        <button class="btn btn-primary btn-sm" id="fb-submit-btn">${t('feedback.submitBtn')}</button>
       </div>
 
       <!-- Resizer Handle -->
-      <div class="fgp-resize-handle" id="ffp-resize-handle"></div>
+      <div class="fgp-resize-handle" id="ffp-resize-handle" title="Resize window">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+          <path d="M9 1v8H1l8-8zM9 5v4H5l4-4z"/>
+        </svg>
+      </div>
     `;
 
     this.populateTemplateForCurrentType();
@@ -380,6 +391,7 @@ export class FeedbackPanel {
 
     handle.addEventListener('pointerdown', (e: PointerEvent) => {
       if ((e.target as HTMLElement).closest('button')) return;
+      if (window.innerWidth <= 768) return;
 
       this.isDragging = true;
       this.dragStartX = e.clientX;

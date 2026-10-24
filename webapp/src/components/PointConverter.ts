@@ -7,6 +7,10 @@ import { showToast } from '../utils/toast';
 import { isInsideRomaniaGrid } from './MapView';
 import { renderCopyButton } from '../ui';
 
+function escapeHtmlAttr(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 export type AngularUnitType = 'degrees' | 'dms' | 'radians';
 
 export interface PointTransformedEvent {
@@ -47,7 +51,8 @@ export class PointConverter {
   private outputWarning: string | null = null;
   private quasigeoidZeta: number | null = null;
   private isCalculating: boolean = false;
-  private validationError: string | null = null;
+  private pendingCalculation: boolean = false;
+  private qualityStatus: 'ready' | 'valid' | 'invalid_input' | 'invalid_angle' | 'out_of_grid' | 'no_data' = 'ready';
 
   constructor(callbacks: PointConverterCallbacks) {
     this.callbacks = callbacks;
@@ -190,6 +195,28 @@ export class PointConverter {
     return this.order;
   }
 
+  public clearCoordinates(): void {
+    this.inputCoo1 = '';
+    this.inputCoo2 = '';
+    this.inputCoo3 = '';
+    this.outputCoords = null;
+    this.outputWarning = null;
+    this.quasigeoidZeta = null;
+    this.qualityStatus = 'ready';
+    this.updateQueryParams();
+    this.callbacks?.onPointTransformed?.({
+      lat: NaN,
+      lon: NaN,
+      outOfGrid: false,
+    });
+    this.render();
+  }
+
+  public setQualityStatus(status: 'ready' | 'valid' | 'invalid_input' | 'invalid_angle' | 'out_of_grid' | 'no_data'): void {
+    this.qualityStatus = status;
+    this.render();
+  }
+
   public setCoordinatesFromMap(lat: number, lon: number): void {
     let latStr: string;
     let lonStr: string;
@@ -304,6 +331,18 @@ export class PointConverter {
         }
       }
     }
+    if (params.has('unit')) {
+      const unitParam = params.get('unit') as AngularUnitType;
+      if (unitParam === 'degrees' || unitParam === 'dms' || unitParam === 'radians') {
+        this.angularUnit = unitParam;
+      }
+    }
+    if (params.has('order')) {
+      const orderParam = params.get('order') as CoordinateOrder;
+      if (orderParam === 'NE' || orderParam === 'EN') {
+        this.order = orderParam;
+      }
+    }
     if (params.has('c1')) this.inputCoo1 = params.get('c1') || this.inputCoo1;
     if (params.has('c2')) this.inputCoo2 = params.get('c2') || this.inputCoo2;
     if (params.has('c3')) this.inputCoo3 = params.get('c3') || this.inputCoo3;
@@ -312,6 +351,8 @@ export class PointConverter {
   private updateQueryParams(): void {
     const params = new URLSearchParams();
     params.set('op', this.op);
+    params.set('unit', this.angularUnit);
+    params.set('order', this.order);
     params.set('c1', this.inputCoo1);
     params.set('c2', this.inputCoo2);
     if (this.inputCoo3.trim() !== '') {
@@ -322,9 +363,12 @@ export class PointConverter {
   }
 
   private async calculate(): Promise<void> {
-    if (this.isCalculating) return;
+    if (this.isCalculating) {
+      this.pendingCalculation = true;
+      return;
+    }
     this.isCalculating = true;
-    this.validationError = null;
+    this.pendingCalculation = false;
 
     try {
       let raw1: number;
@@ -333,6 +377,14 @@ export class PointConverter {
 
       const val1 = this.inputCoo1.trim();
       const val2 = this.inputCoo2.trim();
+
+      if (!val1 && !val2) {
+        this.outputCoords = null;
+        this.outputWarning = null;
+        this.quasigeoidZeta = null;
+        this.qualityStatus = 'ready';
+        return;
+      }
 
       // Determine northing/lat vs easting/lon according to coordinate order
       const northingOrLat = this.order === 'NE' ? val1 : val2;
@@ -349,7 +401,7 @@ export class PointConverter {
           this.outputCoords = null;
           this.outputWarning = null;
           this.quasigeoidZeta = null;
-          this.validationError = t('point.errNonNumericStereo');
+          this.qualityStatus = 'invalid_input';
           return;
         }
 
@@ -380,11 +432,20 @@ export class PointConverter {
           raw2 = NaN;
         }
 
-        if (isNaN(raw1) || isNaN(raw2) || raw1 < -90 || raw1 > 90 || raw2 < -180 || raw2 > 180) {
+        if (isNaN(raw1) || isNaN(raw2)) {
           this.outputCoords = null;
           this.outputWarning = null;
           this.quasigeoidZeta = null;
-          this.validationError = t('point.errInvalidCoords');
+          this.qualityStatus = 'invalid_input';
+          return;
+        }
+
+        // Dedicated check for physically impossible angles: Latitude [-90, 90], Longitude [-180, 180]
+        if (raw1 < -90 || raw1 > 90 || raw2 < -180 || raw2 > 180) {
+          this.outputCoords = null;
+          this.outputWarning = null;
+          this.quasigeoidZeta = null;
+          this.qualityStatus = 'invalid_angle';
           return;
         }
       }
@@ -398,8 +459,7 @@ export class PointConverter {
           this.outputCoords = null;
           this.outputWarning = null;
           this.quasigeoidZeta = null;
-          this.validationError =
-            this.op === 'Stereo70ToETRS89' ? t('point.errNonNumericStereo') : t('point.errInvalidCoords');
+          this.qualityStatus = 'invalid_input';
           return;
         }
         raw3 = Number(trimmed3);
@@ -429,6 +489,14 @@ export class PointConverter {
       const isOutOfGrid = res.warning === 'Out of grid';
       const isNoData = res.warning === 'No data on grid';
       const isUntransformable = isOutOfGrid || isNoData;
+
+      if (isOutOfGrid) {
+        this.qualityStatus = 'out_of_grid';
+      } else if (isNoData) {
+        this.qualityStatus = 'no_data';
+      } else {
+        this.qualityStatus = 'valid';
+      }
 
       // Quasigeoid height calculation in 3D:
       // When Stereo70 -> ETRS89: res.coos[2] is h, input is H => zeta = h - H
@@ -496,10 +564,15 @@ export class PointConverter {
     } catch (err: any) {
       this.outputCoords = null;
       this.outputWarning = err.message || 'Error';
+      this.qualityStatus = 'invalid_input';
       showToast(err.message || 'Error calculating coordinates', 'danger');
     } finally {
       this.isCalculating = false;
       this.render();
+      if (this.pendingCalculation) {
+        this.pendingCalculation = false;
+        this.calculate();
+      }
     }
   }
 
@@ -517,63 +590,10 @@ export class PointConverter {
     }
     const c3Label = isS70 ? t('point.altitudeLabel') : t('point.heightLabel');
 
-    this.container.innerHTML = `
-      <div class="studio-card" role="group" aria-label="${t('point.inputCoordsHint')}">
-        <!-- Input Coordinates Micro-Header -->
-        <div class="section-micro-label">${t('point.inputCoordsHint')}</div>
-
-        <!-- Symmetrical 3-Column Inputs Grid -->
-        <div class="coord-grid-3">
-          <div class="form-group" style="margin-bottom: 0;">
-            <label class="form-label">${c1Label}</label>
-            <input type="text" class="form-input mono" id="pt-input-1" aria-label="${c1Label}" value="${this.inputCoo1}" />
-          </div>
-          <div class="form-group" style="margin-bottom: 0;">
-            <label class="form-label">${c2Label}</label>
-            <input type="text" class="form-input mono" id="pt-input-2" aria-label="${c2Label}" value="${this.inputCoo2}" />
-          </div>
-          <div class="form-group" style="margin-bottom: 0;">
-            <label class="form-label">${c3Label}</label>
-            <input 
-              type="text" 
-              class="form-input mono" 
-              id="pt-input-3" 
-              aria-label="${c3Label}"
-              value="${this.inputCoo3}" 
-              placeholder="${t('point.optionalPlaceholder')}" 
-            />
-          </div>
-        </div>
-
-        ${
-          this.validationError
-            ? `
-          <div class="error-banner">
-            <span>⚠</span>
-            <span>${this.validationError}</span>
-          </div>
-        `
-            : ''
-        }
-
-        <!-- Primary Action Button (no emoji) -->
-        <button class="btn btn-primary" id="pt-calculate-btn" style="width: 100%; margin-top: 14px;">
-          <span>${this.isCalculating ? t('point.calculating') : t('point.transformBtn')}</span>
-        </button>
-      </div>
-
-      <!-- Persistent Output Result Card with Dedicated Metric Box & Quality Report -->
-      ${this.renderResultCard()}
-    `;
-
-    this.attachEventListeners();
-  }
-
-  private renderResultCard(): string {
     const isTargetGeo = this.op === 'Stereo70ToETRS89';
-    let outCol1Val = '—';
-    let outCol2Val = '—';
-    let val3Str = '—';
+    let outCol1Val = '';
+    let outCol2Val = '';
+    let val3Str = '';
     let outCol1Raw = '';
     let outCol2Raw = '';
     let raw3Str = '';
@@ -626,7 +646,7 @@ export class PointConverter {
     }
     const label3 = isTargetGeo ? t('point.heightLabel') : t('point.altitudeLabel');
 
-    let zetaDisplay = '—';
+    let zetaDisplay = '';
     if (this.quasigeoidZeta !== null) {
       zetaDisplay = (this.quasigeoidZeta >= 0 ? '+' : '') + this.quasigeoidZeta.toFixed(3);
     }
@@ -668,110 +688,180 @@ export class PointConverter {
 
     const canCenterOnMap = !isUntransformable && !isNaN(mapLat) && !isNaN(mapLon) && isInsideRomaniaGrid(mapLat, mapLon);
 
-    let qualityBadges = '';
-    if (this.outputCoords) {
-      qualityBadges = `
-        ${
-          !isUntransformable
-            ? `<span class="status-pill success">✓ ${t('quality.validCoords')}</span>`
-            : ''
-        }
-        ${
-          isOutOfGrid
-            ? `<span class="status-pill warning">⚠ ${t('quality.outsideGrid')}</span>`
-            : isNoData
-            ? `<span class="status-pill warning">⚠ ${t('quality.noGridData')}</span>`
-            : `<span class="status-pill success">✓ ${t('quality.inGrid')}</span>`
-        }
-        <span class="status-pill" style="background-color: var(--bg-surface-elevated); color: var(--text-muted); border: 1px solid var(--border-medium);">
-          ${is3D ? t('quality.mode3D') : t('quality.mode2D')}
-        </span>
-      `;
-    } else if (this.validationError) {
-      qualityBadges = `<span class="status-pill danger">✕ ${this.validationError}</span>`;
-    } else {
-      qualityBadges = `<span class="status-pill" style="color: var(--text-muted);">${t('quality.readyToTransform')}</span>`;
+    let transformQualityBadge = '';
+    switch (this.qualityStatus) {
+      case 'valid':
+        transformQualityBadge = `<span class="status-pill success">${t('quality.valid')}</span>`;
+        break;
+      case 'invalid_input':
+        transformQualityBadge = `<span class="status-pill danger">${t('quality.invalidInput')}</span>`;
+        break;
+      case 'invalid_angle':
+        transformQualityBadge = `<span class="status-pill danger">${t('quality.invalidAngle')}</span>`;
+        break;
+      case 'out_of_grid':
+        transformQualityBadge = `<span class="status-pill warning">${t('quality.outsideGrid')}</span>`;
+        break;
+      case 'no_data':
+        transformQualityBadge = `<span class="status-pill warning">${t('quality.noGridData')}</span>`;
+        break;
+      case 'ready':
+      default:
+        transformQualityBadge = `<span class="status-pill neutral">${t('quality.readyToTransform')}</span>`;
+        break;
     }
 
-    return `
-      <div class="result-card" role="group" aria-label="${t('point.computedCoords')}">
-        <!-- Computed Coordinates Micro-Header with Top-Right Code-Block Style Copy Action -->
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-          <div class="section-micro-label">${t('point.computedCoords')}</div>
-          <div id="pt-copy-btn-slot" data-c1="${outCol1Raw}" data-c2="${outCol2Raw}" data-c3="${raw3Str}"></div>
+    this.container.innerHTML = `
+      <!-- Card 1: Input Section -->
+      <div class="studio-card input-card" role="group" aria-label="${t('point.inputCoordsHint')}">
+        <div class="section-micro-label">${t('point.inputCoordsHint')}</div>
+
+        <div class="coord-grid-3">
+          <div class="form-group margin-bottom-none">
+            <label class="form-label">${c1Label}</label>
+            <input 
+              type="text" 
+              class="form-input mono" 
+              id="pt-input-1" 
+              aria-label="${c1Label}" 
+              value="${escapeHtmlAttr(this.inputCoo1)}" 
+              autocomplete="off" 
+              autocorrect="off" 
+              autocapitalize="none" 
+              spellcheck="false" 
+            />
+          </div>
+          <div class="form-group margin-bottom-none">
+            <label class="form-label">${c2Label}</label>
+            <input 
+              type="text" 
+              class="form-input mono" 
+              id="pt-input-2" 
+              aria-label="${c2Label}" 
+              value="${escapeHtmlAttr(this.inputCoo2)}" 
+              autocomplete="off" 
+              autocorrect="off" 
+              autocapitalize="none" 
+              spellcheck="false" 
+            />
+          </div>
+          <div class="form-group margin-bottom-none">
+            <label class="form-label">${c3Label}</label>
+            <input 
+              type="text" 
+              class="form-input mono" 
+              id="pt-input-3" 
+              aria-label="${c3Label}"
+              value="${escapeHtmlAttr(this.inputCoo3)}" 
+              placeholder="${t('point.optionalPlaceholder')}" 
+              autocomplete="off" 
+              autocorrect="off" 
+              autocapitalize="none" 
+              spellcheck="false" 
+            />
+          </div>
+        </div>
+      </div>
+
+      <!-- Active Separator Button between Input & Output -->
+      <div class="transform-action-row">
+        <button class="btn btn-primary" id="pt-calculate-btn">
+          <span>${this.isCalculating ? t('point.calculating') : t('point.transformBtn')}</span>
+        </button>
+      </div>
+
+      <!-- Card 2: Output Section -->
+      <div class="studio-card result-card" role="group" aria-label="${t('point.outputSectionLabel')}">
+        <div class="flex-between-center margin-bottom-sm">
+          <div class="section-micro-label">${t('point.outputSectionLabel')}</div>
+          <div id="pt-copy-btn-slot" data-c1="${escapeHtmlAttr(outCol1Raw)}" data-c2="${escapeHtmlAttr(outCol2Raw)}" data-c3="${escapeHtmlAttr(raw3Str)}"></div>
         </div>
 
-        <!-- 3-Column Output Row: Pure Numbers Only -->
         <div class="output-grid-3">
-          <div class="form-group" style="margin-bottom: 0;">
+          <div class="form-group margin-bottom-none">
             <label class="form-label">${outCol1Label}</label>
-            <input type="text" readonly class="form-input mono" aria-label="${outCol1Label}" value="${outCol1Val}" />
+            <input type="text" readonly class="form-input mono" aria-label="${outCol1Label}" value="${escapeHtmlAttr(outCol1Val)}" />
           </div>
-          <div class="form-group" style="margin-bottom: 0;">
+          <div class="form-group margin-bottom-none">
             <label class="form-label">${outCol2Label}</label>
-            <input type="text" readonly class="form-input mono" aria-label="${outCol2Label}" value="${outCol2Val}" />
+            <input type="text" readonly class="form-input mono" aria-label="${outCol2Label}" value="${escapeHtmlAttr(outCol2Val)}" />
           </div>
-          <div class="form-group" style="margin-bottom: 0;">
+          <div class="form-group margin-bottom-none">
             <label class="form-label">${label3}</label>
-            <input type="text" readonly class="form-input mono" aria-label="${label3}" value="${val3Str}" />
+            <input type="text" readonly class="form-input mono" aria-label="${label3}" value="${escapeHtmlAttr(val3Str)}" />
           </div>
         </div>
 
-        <!-- Dedicated Quasigeoid Height Field on its Own Row -->
-        <div class="form-group" style="margin-top: 10px; margin-bottom: 0;">
-          <label class="form-label">${t('point.quasigeoidLabel')}</label>
-          <input type="text" readonly class="form-input mono metric-field" aria-label="${t('point.quasigeoidLabel')}" value="${zetaDisplay}" />
+        <!-- Quasi-geoid Height Info Archetype -->
+        <div class="output-quasigeoid-row">
+          <span class="info-label">${t('point.quasigeoidLabel')}</span>
+          <span class="info-field-badge">${escapeHtmlAttr(zetaDisplay)}</span>
         </div>
+      </div>
 
-        <!-- Unified Quality Report directly beneath outputs -->
-        <div class="quality-report-card">
+      <!-- Card 3: Report Section -->
+      <div class="studio-card report-card" role="group" aria-label="${t('quality.sectionTitle')}">
+        <div class="section-micro-label">${t('quality.sectionTitle')}</div>
+        <div class="quality-report-content flex-column-gap-sm">
           <div class="quality-report-row">
+            <span class="quality-label">${t('quality.sectionCoords')}</span>
             <div class="quality-report-badges">
-              ${qualityBadges}
+              <span class="status-pill status-pill-neutral">
+                ${is3D ? t('quality.dim3D') : t('quality.dim2D')}
+              </span>
+            </div>
+          </div>
+
+          <div class="quality-report-divider-dashed"></div>
+
+          <div class="quality-report-row">
+            <span class="quality-label">${t('quality.sectionTransform')}</span>
+            <div class="quality-report-badges">
+              ${transformQualityBadge}
             </div>
           </div>
         </div>
+      </div>
 
-        <!-- Decoupled Map Navigation Actions -->
-        <div class="action-footer-right" style="display: flex; gap: 8px; justify-content: flex-end; width: 100%; margin-top: 10px;">
-          <button 
-            class="btn btn-outline center-map-btn" 
-            id="pt-center-map-btn" 
-            ${canCenterOnMap ? '' : 'disabled'}
-            data-lat="${mapLat}"
-            data-lon="${mapLon}"
-            data-oog="${isOutOfGrid ? '1' : '0'}"
-            style="padding: 4px 10px; font-size: 11.5px;"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="10"></circle>
-              <line x1="22" y1="12" x2="18" y2="12"></line>
-              <line x1="6" y1="12" x2="2" y2="12"></line>
-              <line x1="12" y1="6" x2="12" y2="2"></line>
-              <line x1="12" y1="22" x2="12" y2="18"></line>
-            </svg>
-            <span>${t('common.centerOnMap')}</span>
-          </button>
-          <button 
-            class="btn btn-outline zoom-extents-btn" 
-            id="pt-zoom-extents-btn" 
-            ${canCenterOnMap ? '' : 'disabled'}
-            data-lat="${mapLat}"
-            data-lon="${mapLon}"
-            data-oog="${isOutOfGrid ? '1' : '0'}"
-            style="padding: 4px 10px; font-size: 11.5px;"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="11" cy="11" r="8"></circle>
-              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-              <line x1="11" y1="8" x2="11" y2="14"></line>
-              <line x1="8" y1="11" x2="14" y2="11"></line>
-            </svg>
-            <span>${t('common.zoomToExtents')}</span>
-          </button>
-        </div>
+      <!-- Decoupled Map Navigation Dock -->
+      <div class="workbench-actions-dock">
+        <button 
+          class="btn btn-outline center-map-btn btn-secondary-action" 
+          id="pt-center-map-btn" 
+          ${canCenterOnMap ? '' : 'disabled'}
+          data-lat="${mapLat}"
+          data-lon="${mapLon}"
+          data-oog="${isOutOfGrid ? '1' : '0'}"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="22" y1="12" x2="18" y2="12"></line>
+            <line x1="6" y1="12" x2="2" y2="12"></line>
+            <line x1="12" y1="6" x2="12" y2="2"></line>
+            <line x1="12" y1="22" x2="12" y2="18"></line>
+          </svg>
+          <span>${t('common.centerOnMap')}</span>
+        </button>
+        <button 
+          class="btn btn-outline zoom-extents-btn btn-secondary-action" 
+          id="pt-zoom-extents-btn" 
+          ${canCenterOnMap ? '' : 'disabled'}
+          data-lat="${mapLat}"
+          data-lon="${mapLon}"
+          data-oog="${isOutOfGrid ? '1' : '0'}"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            <line x1="11" y1="8" x2="11" y2="14"></line>
+            <line x1="8" y1="11" x2="14" y2="11"></line>
+          </svg>
+          <span>${t('common.zoomToExtents')}</span>
+        </button>
       </div>
     `;
+
+    this.attachEventListeners();
   }
 
   private attachEventListeners(): void {

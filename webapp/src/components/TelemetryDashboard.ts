@@ -1,3 +1,4 @@
+import { formatTelemetryNumber, formatTelemetryDecimal, formatTelemetryPercent, formatDisplayDate } from '../utils/numberFormat';
 import { t, onLanguageChange } from '../i18n';
 import {
   apiClient,
@@ -91,6 +92,7 @@ export class TelemetryDashboard {
   private hasCustomRange: boolean = false;
   private customStartDate: string = '2023-11-01';
   private customEndDate: string = new Date().toISOString().slice(0, 10);
+  private compShowTotal: boolean = true;
 
   private chart: TimelineChart;
   private spatialChart: SpatialMatrixChart;
@@ -218,7 +220,11 @@ export class TelemetryDashboard {
 
       // Track earliest available date from database
       if (res.summary.from_date && this.activePreset === 'all') {
-        this.minHistoryDate = res.summary.from_date;
+        let fromDate = res.summary.from_date;
+        if (fromDate.length === 7) {
+          fromDate = `${fromDate}-01`;
+        }
+        this.minHistoryDate = fromDate;
         if (!this.hasCustomRange) {
           this.customStartDate = this.minHistoryDate;
         }
@@ -291,8 +297,6 @@ export class TelemetryDashboard {
         <!-- Top Navigation Bar -->
         <div class="telemetry-page-header">
           <div class="telemetry-title-block">
-            <div class="telemetry-page-title">${t('stats.title')}</div>
-            <div class="header-brand-nav-divider"></div>
             <nav class="telemetry-nav-tabs" role="tablist">
               <button 
                 type="button" 
@@ -385,7 +389,7 @@ export class TelemetryDashboard {
       totalPoints = this.timelineData?.summary?.total_points ?? (this.telemetry?.summary.total_points ?? 0);
     }
 
-    const avgRatio = totalCalls > 0 ? (totalPoints / totalCalls).toFixed(1) : '0';
+    const avgRatio = totalCalls > 0 ? formatTelemetryDecimal(totalPoints / totalCalls, 1) : '0';
 
     // Filter out unknown source from UI
     const displaySources = this.availableSources.filter((s) => s.name !== 'unknown');
@@ -403,15 +407,22 @@ export class TelemetryDashboard {
       })
       .join('');
 
+    const compEffectiveFrom = this.timelineData?.summary?.effective_from_date ?? this.timelineData?.summary?.from_date ?? this.customStartDate;
+    const compEffectiveTo = this.timelineData?.summary?.effective_to_date ?? this.timelineData?.summary?.to_date ?? this.customEndDate;
+    const compMinFormatted = formatDisplayDate(this.minHistoryDate.length === 7 ? `${this.minHistoryDate}-01` : this.minHistoryDate);
+    const compMaxFormatted = formatDisplayDate(this.maxHistoryDate);
+    const compActiveStartFormatted = formatDisplayDate(compEffectiveFrom);
+    const compActiveEndFormatted = formatDisplayDate(compEffectiveTo);
+
     return `
       <!-- KPI Banner: Neutral Theme Colors, Clean Info Presentation -->
       <div class="telemetry-kpi-banner">
         <div class="telemetry-kpi-card">
-          <div class="telemetry-kpi-val neutral-val">${totalPoints.toLocaleString()}</div>
+          <div class="telemetry-kpi-val neutral-val">${formatTelemetryNumber(totalPoints)}</div>
           <div class="telemetry-kpi-label">${t('stats.totalPoints')}</div>
         </div>
         <div class="telemetry-kpi-card">
-          <div class="telemetry-kpi-val neutral-val">${totalCalls.toLocaleString()}</div>
+          <div class="telemetry-kpi-val neutral-val">${formatTelemetryNumber(totalCalls)}</div>
           <div class="telemetry-kpi-label">${t('stats.totalCalls')}</div>
         </div>
         <div class="telemetry-kpi-card">
@@ -423,7 +434,7 @@ export class TelemetryDashboard {
       <!-- Controls Deck -->
       <div class="telemetry-deck">
         <!-- Row 1: Unified Single Bar Presets (Left) & Granularity (Right) -->
-        <div class="telemetry-deck-row unified-controls-row" style="justify-content: space-between;">
+        <div class="telemetry-deck-row unified-controls-row flex-between-center">
           <div class="telemetry-facet-group">
             <div class="telemetry-btn-toggle-group">
               <button class="telemetry-toggle-btn ${this.activePreset === 'all' && !this.hasCustomRange ? 'active' : ''}" data-preset="all">${t('stats.presetAll')}</button>
@@ -443,50 +454,82 @@ export class TelemetryDashboard {
           </div>
         </div>
 
-        <!-- Row 2: Native Themed Calendar Range Controls & Range Limits Info -->
+        <!-- Row 2: Native Themed Calendar Range Controls, Bounds (Left) & Active Period (Right) -->
         <div class="telemetry-deck-row telemetry-date-controls-row">
-          <div class="telemetry-date-inputs-cluster">
-            <div class="date-input-group">
-              <input 
-                type="date" 
-                class="telemetry-date-input" 
-                id="comp-date-start"
-                min="${this.minHistoryDate}" 
-                max="${this.maxHistoryDate}" 
-                value="${this.customStartDate}" 
-              />
+          <!-- Left Group: User Query Selection & Historical Limits -->
+          <div class="telemetry-date-left-group">
+            <div class="telemetry-date-inputs-cluster">
+              <div class="date-input-group">
+                <input 
+                  type="date" 
+                  class="telemetry-date-input" 
+                  id="comp-date-start"
+                  min="${this.minHistoryDate}" 
+                  max="${this.maxHistoryDate}" 
+                  value="${this.customStartDate}" 
+                />
+              </div>
+              <span class="range-arrow">→</span>
+              <div class="date-input-group">
+                <input 
+                  type="date" 
+                  class="telemetry-date-input" 
+                  id="comp-date-end"
+                  min="${this.minHistoryDate}" 
+                  max="${this.maxHistoryDate}" 
+                  value="${this.customEndDate}" 
+                />
+              </div>
             </div>
-            <span class="range-arrow">→</span>
-            <div class="date-input-group">
-              <input 
-                type="date" 
-                class="telemetry-date-input" 
-                id="comp-date-end"
-                min="${this.minHistoryDate}" 
-                max="${this.maxHistoryDate}" 
-                value="${this.customEndDate}" 
-              />
+
+            <div class="telemetry-date-limits-cluster">
+              <div class="telemetry-info-subgroup">
+                <span class="info-label">${t('stats.earliestAvailable')}</span>
+                <span class="info-field-readonly">${compMinFormatted}</span>
+              </div>
+              <div class="telemetry-info-subgroup">
+                <span class="info-label">${t('stats.currentDate')}</span>
+                <span class="info-field-readonly">${compMaxFormatted}</span>
+              </div>
             </div>
           </div>
 
-          <div class="telemetry-range-limits-pill">
-            <span class="limit-subtle">${t('stats.sliderEarliest', { date: this.minHistoryDate })}</span>
-            <span class="limit-divider">•</span>
-            <span class="limit-subtle">${t('stats.sliderToday', { date: this.maxHistoryDate })}</span>
+          <!-- Vertical Visual Divider -->
+          <div class="telemetry-deck-vdivider" aria-hidden="true"></div>
+
+          <!-- Right Group: Database Effective Period Result -->
+          <div class="telemetry-date-active-cluster" id="comp-effective-period-group">
+            <span class="form-label telemetry-active-main-label">${t('stats.effectivePeriod')}</span>
+            <div class="telemetry-info-subgroup">
+              <span class="info-label">${t('stats.periodStart')}</span>
+              <span class="info-field-readonly active-period-value">${compActiveStartFormatted}</span>
+            </div>
+            <div class="telemetry-info-subgroup">
+              <span class="info-label">${t('stats.periodEnd')}</span>
+              <span class="info-field-readonly active-period-value">${compActiveEndFormatted}</span>
+            </div>
+            <span class="info-help-indicator" id="comp-active-period-info-btn" aria-label="${t('stats.activePeriodTooltip')}" tabindex="0">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="8" cy="8" r="7"/>
+                <line x1="8" y1="7.5" x2="8" y2="11.5"/>
+                <circle cx="8" cy="4.5" r="0.75" fill="currentColor"/>
+              </svg>
+              <span class="info-tooltip-bubble" role="tooltip">${t('stats.activePeriodTooltip')}</span>
+            </span>
           </div>
         </div>
 
-        <!-- Row 3: Merged SOURCES (Left) & METRIC (Right) -->
+        <!-- Row 3: Merged Sources (Left) & Metrics (Right) -->
         <div class="telemetry-deck-row merged-filters-row">
           <div class="filters-left-group">
-            <span class="facet-label">${t('stats.sourcesFilterLabel')}</span>
-            <div class="sources-toggle-list">
+            <label class="form-label">${t('stats.sourcesFilterLabel')}</label>
+            <div class="telemetry-btn-toggle-group multi-select">
               ${sourceTogglesHtml}
             </div>
           </div>
           <div class="filters-right-group">
-            <span class="facet-label">${t('stats.metricFilterLabel')}</span>
-            <div class="telemetry-individual-toggle-group">
+            <label class="form-label">${t('stats.metricsFilterLabel')}</label>
+            <div class="telemetry-btn-toggle-group multi-select">
               <button class="telemetry-toggle-btn individual ${this.compShowPoints ? 'active' : ''}" id="comp-metric-points-btn">
                 ${t('stats.metricPoints')}
               </button>
@@ -558,39 +601,47 @@ export class TelemetryDashboard {
       `);
     }
 
-    // Line 2: Dedicated Total row
+    // Top-Left Dedicated Total Cluster (Stationary Anchor)
     let totalHtml = '';
     if (this.activeSourceKeys.size > 0) {
       const totalColors = this.chart.getTotalSeriesColors();
       totalHtml = `
-        <div class="legend-total-row">
-          <span class="legend-group-title">${t('stats.seriesTotal')}:</span>
-          <div class="legend-group-items">
-            ${showCalls ? `
-              <span class="legend-sub-item interactive-legend-item" data-legend-series="total:calls" title="Click to change line color">
-                <span class="legend-line-sample dashed-sample" style="background: repeating-linear-gradient(90deg, ${totalColors.callsColor} 0, ${totalColors.callsColor} 7px, transparent 7px, transparent 12px);"></span>
-                <span>${t('stats.metricTypeCalls')}</span>
-                ${renderSwatchPopover('total:calls', totalColors.callsColor)}
-              </span>
-            ` : ''}
-            ${showPoints ? `
-              <span class="legend-sub-item interactive-legend-item" data-legend-series="total:points" title="Click to change line color">
-                <span class="legend-line-sample dashed-sample" style="background: repeating-linear-gradient(90deg, ${totalColors.pointsColor} 0, ${totalColors.pointsColor} 7px, transparent 7px, transparent 12px);"></span>
-                <span>${t('stats.metricTypePoints')}</span>
-                ${renderSwatchPopover('total:points', totalColors.pointsColor)}
-              </span>
-            ` : ''}
-          </div>
+        <div class="legend-total-cluster">
+          <button type="button" class="telemetry-toggle-btn individual compact ${this.compShowTotal ? 'active' : ''}" id="comp-toggle-total">
+            ${t('stats.seriesTotal')}
+          </button>
+          ${
+            this.compShowTotal
+              ? `
+            <div class="legend-total-swatches">
+              ${showCalls ? `
+                <span class="legend-sub-item interactive-legend-item" data-legend-series="total:calls" title="Click to change line color">
+                  <span class="legend-line-sample dashed-sample" style="background: repeating-linear-gradient(90deg, ${totalColors.callsColor} 0, ${totalColors.callsColor} 7px, transparent 7px, transparent 12px);"></span>
+                  <span>${t('stats.metricTypeCalls')}</span>
+                  ${renderSwatchPopover('total:calls', totalColors.callsColor)}
+                </span>
+              ` : ''}
+              ${showPoints ? `
+                <span class="legend-sub-item interactive-legend-item" data-legend-series="total:points" title="Click to change line color">
+                  <span class="legend-line-sample dashed-sample" style="background: repeating-linear-gradient(90deg, ${totalColors.pointsColor} 0, ${totalColors.pointsColor} 7px, transparent 7px, transparent 12px);"></span>
+                  <span>${t('stats.metricTypePoints')}</span>
+                  ${renderSwatchPopover('total:points', totalColors.pointsColor)}
+                </span>
+              ` : ''}
+            </div>
+          `
+              : ''
+          }
         </div>
       `;
     }
 
     return `
       <div class="chart-legend-container">
-        <div class="legend-sources-row">
+        ${totalHtml}
+        <div class="legend-sources-cluster">
           ${sourceGroups.join('')}
         </div>
-        ${totalHtml}
       </div>
     `;
   }
@@ -706,9 +757,20 @@ export class TelemetryDashboard {
       });
     });
 
+    // Total series toggle
+    this.element.querySelector('#comp-toggle-total')?.addEventListener('click', () => {
+      this.toggleCompTotal();
+    });
+
     this.element.addEventListener('click', () => {
       this.element.querySelectorAll('.legend-color-popover.open').forEach((p) => p.classList.remove('open'));
     });
+  }
+
+  private toggleCompTotal(): void {
+    this.compShowTotal = !this.compShowTotal;
+    this.render();
+    this.mountChart();
   }
 
   private mountChart(): void {
@@ -721,7 +783,7 @@ export class TelemetryDashboard {
       this.chart.update(this.timelineData.series, {
         activeSourceKeys: this.activeSourceKeys,
         availableSources: this.availableSources,
-        showTotal: true,
+        showTotal: this.compShowTotal,
         metricFilter: this.computationMetricFilter,
       });
     }
@@ -843,16 +905,23 @@ export class TelemetryDashboard {
       })
       .join('');
 
+    const spEffectiveFrom = this.spatialData?.summary?.effective_from_date ?? this.spatialData?.summary?.from_date ?? this.spatialCustomStartDate;
+    const spEffectiveTo = this.spatialData?.summary?.effective_to_date ?? this.spatialData?.summary?.to_date ?? this.spatialCustomEndDate;
+    const spMinFormatted = formatDisplayDate(this.minHistoryDate.length === 7 ? `${this.minHistoryDate}-01` : this.minHistoryDate);
+    const spMaxFormatted = formatDisplayDate(this.maxHistoryDate);
+    const spActiveStartFormatted = formatDisplayDate(spEffectiveFrom);
+    const spActiveEndFormatted = formatDisplayDate(spEffectiveTo);
+
     return `
-      <!-- Overall Stats Area: Full-Width Summary Rectangle -->
-      <div class="spatial-overview-banner">
-        <div class="spatial-overview-col left-col">
-          <div class="overview-sublabel">${this.spatialMetric === 'points' ? t('stats.totalPoints') : t('stats.totalCalls')}</div>
-          <div class="overview-main-val mono">${totalVal.toLocaleString()}</div>
+      <!-- Overall Stats Area: 2 Archetype 8.1 Standalone KPI Cards -->
+      <div class="telemetry-kpi-banner two-cards">
+        <div class="telemetry-kpi-card">
+          <div class="telemetry-kpi-val neutral-val">${formatTelemetryNumber(totalVal)}</div>
+          <div class="telemetry-kpi-label">${this.spatialMetric === 'points' ? t('stats.totalPoints') : t('stats.totalCalls')}</div>
         </div>
-        <div class="spatial-overview-col right-col">
-          <div class="overview-sublabel">${t('stats.activeCellsLabel')}</div>
-          <div class="overview-main-val mono">${activeCells.toLocaleString()}</div>
+        <div class="telemetry-kpi-card">
+          <div class="telemetry-kpi-val neutral-val">${formatTelemetryNumber(activeCells)}</div>
+          <div class="telemetry-kpi-label">${t('stats.activeCellsLabel')}</div>
         </div>
       </div>
 
@@ -861,32 +930,32 @@ export class TelemetryDashboard {
         <div class="quadrant-card nw">
           <div class="quadrant-name">${t('stats.quadrantNW')}</div>
           <div class="quadrant-val-row">
-            <span class="quadrant-value mono">${qNW.value.toLocaleString()}</span>
-            <span class="quadrant-share mono">(${qNW.percentage}%)</span>
+            <span class="quadrant-value mono">${formatTelemetryNumber(qNW.value)}</span>
+            <span class="quadrant-share mono">(${formatTelemetryPercent(qNW.percentage, 1)})</span>
           </div>
         </div>
 
         <div class="quadrant-card ne">
           <div class="quadrant-name">${t('stats.quadrantNE')}</div>
           <div class="quadrant-val-row">
-            <span class="quadrant-value mono">${qNE.value.toLocaleString()}</span>
-            <span class="quadrant-share mono">(${qNE.percentage}%)</span>
+            <span class="quadrant-value mono">${formatTelemetryNumber(qNE.value)}</span>
+            <span class="quadrant-share mono">(${formatTelemetryPercent(qNE.percentage, 1)})</span>
           </div>
         </div>
 
         <div class="quadrant-card sw">
           <div class="quadrant-name">${t('stats.quadrantSW')}</div>
           <div class="quadrant-val-row">
-            <span class="quadrant-value mono">${qSW.value.toLocaleString()}</span>
-            <span class="quadrant-share mono">(${qSW.percentage}%)</span>
+            <span class="quadrant-value mono">${formatTelemetryNumber(qSW.value)}</span>
+            <span class="quadrant-share mono">(${formatTelemetryPercent(qSW.percentage, 1)})</span>
           </div>
         </div>
 
         <div class="quadrant-card se">
           <div class="quadrant-name">${t('stats.quadrantSE')}</div>
           <div class="quadrant-val-row">
-            <span class="quadrant-value mono">${qSE.value.toLocaleString()}</span>
-            <span class="quadrant-share mono">(${qSE.percentage}%)</span>
+            <span class="quadrant-value mono">${formatTelemetryNumber(qSE.value)}</span>
+            <span class="quadrant-share mono">(${formatTelemetryPercent(qSE.percentage, 1)})</span>
           </div>
         </div>
       </div>
@@ -916,49 +985,81 @@ export class TelemetryDashboard {
           </div>
         </div>
 
-        <!-- Row 2: Native Themed Calendar Inputs & Limits -->
+        <!-- Row 2: Native Themed Calendar Inputs, Bounds (Left) & Active Period (Right) -->
         <div class="telemetry-deck-row telemetry-date-controls-row">
-          <div class="telemetry-date-inputs-cluster">
-            <div class="date-input-group">
-              <input 
-                type="date" 
-                class="telemetry-date-input" 
-                id="spatial-date-start"
-                min="${this.minHistoryDate}" 
-                max="${this.maxHistoryDate}" 
-                value="${this.spatialCustomStartDate}" 
-              />
+          <!-- Left Group: User Query Selection & Historical Limits -->
+          <div class="telemetry-date-left-group">
+            <div class="telemetry-date-inputs-cluster">
+              <div class="date-input-group">
+                <input 
+                  type="date" 
+                  class="telemetry-date-input" 
+                  id="spatial-date-start"
+                  min="${this.minHistoryDate}" 
+                  max="${this.maxHistoryDate}" 
+                  value="${this.spatialCustomStartDate}" 
+                />
+              </div>
+              <span class="range-arrow">→</span>
+              <div class="date-input-group">
+                <input 
+                  type="date" 
+                  class="telemetry-date-input" 
+                  id="spatial-date-end"
+                  min="${this.minHistoryDate}" 
+                  max="${this.maxHistoryDate}" 
+                  value="${this.spatialCustomEndDate}" 
+                />
+              </div>
             </div>
-            <span class="range-arrow">→</span>
-            <div class="date-input-group">
-              <input 
-                type="date" 
-                class="telemetry-date-input" 
-                id="spatial-date-end"
-                min="${this.minHistoryDate}" 
-                max="${this.maxHistoryDate}" 
-                value="${this.spatialCustomEndDate}" 
-              />
+
+            <div class="telemetry-date-limits-cluster">
+              <div class="telemetry-info-subgroup">
+                <span class="info-label">${t('stats.earliestAvailable')}</span>
+                <span class="info-field-readonly">${spMinFormatted}</span>
+              </div>
+              <div class="telemetry-info-subgroup">
+                <span class="info-label">${t('stats.currentDate')}</span>
+                <span class="info-field-readonly">${spMaxFormatted}</span>
+              </div>
             </div>
           </div>
 
-          <div class="telemetry-range-limits-pill">
-            <span class="limit-subtle">${t('stats.sliderEarliest', { date: this.minHistoryDate })}</span>
-            <span class="limit-divider">•</span>
-            <span class="limit-subtle">${t('stats.sliderToday', { date: this.maxHistoryDate })}</span>
+          <!-- Vertical Visual Divider -->
+          <div class="telemetry-deck-vdivider" aria-hidden="true"></div>
+
+          <!-- Right Group: Database Effective Period Result -->
+          <div class="telemetry-date-active-cluster" id="spatial-effective-period-group">
+            <span class="form-label telemetry-active-main-label">${t('stats.effectivePeriod')}</span>
+            <div class="telemetry-info-subgroup">
+              <span class="info-label">${t('stats.periodStart')}</span>
+              <span class="info-field-readonly active-period-value">${spActiveStartFormatted}</span>
+            </div>
+            <div class="telemetry-info-subgroup">
+              <span class="info-label">${t('stats.periodEnd')}</span>
+              <span class="info-field-readonly active-period-value">${spActiveEndFormatted}</span>
+            </div>
+            <span class="info-help-indicator" id="spatial-active-period-info-btn" aria-label="${t('stats.activePeriodTooltip')}" tabindex="0">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="8" cy="8" r="7"/>
+                <line x1="8" y1="7.5" x2="8" y2="11.5"/>
+                <circle cx="8" cy="4.5" r="0.75" fill="currentColor"/>
+              </svg>
+              <span class="info-tooltip-bubble" role="tooltip">${t('stats.activePeriodTooltip')}</span>
+            </span>
           </div>
         </div>
 
         <!-- Row 3: Merged SOURCES (Left) & METRIC (Right) -->
         <div class="telemetry-deck-row merged-filters-row">
           <div class="filters-left-group">
-            <span class="facet-label">${t('stats.sourcesFilterLabel')}</span>
-            <div class="sources-toggle-list">
+            <label class="form-label">${t('stats.sourcesFilterLabel')}</label>
+            <div class="telemetry-btn-toggle-group multi-select">
               ${spatialSourceTogglesHtml}
             </div>
           </div>
           <div class="filters-right-group">
-            <span class="facet-label">${t('stats.metricFilterLabel')}</span>
+            <label class="form-label">${t('stats.metricFilterLabel')}</label>
             <div class="telemetry-btn-toggle-group">
               <button class="telemetry-toggle-btn ${this.spatialMetric === 'points' ? 'active' : ''}" id="spatial-metric-points-btn">
                 ${t('stats.metricPoints')}
@@ -1000,13 +1101,13 @@ export class TelemetryDashboard {
             </div>
             <div class="legend-color-step">
               <span class="step-swatch level-4"></span>
-              <span class="step-label">${t('stats.levelPeak', { count: maxCellHits.toLocaleString() })}</span>
+              <span class="step-label">${t('stats.levelPeak', { count: formatTelemetryNumber(maxCellHits) })}</span>
             </div>
           </div>
 
           <!-- Bottom-Right Scaling Selector -->
           <div class="spatial-scaling-selector-bottom">
-            <span class="facet-label">${t('stats.scaleToggleLabel')}</span>
+            <label class="form-label">${t('stats.scaleToggleLabel')}</label>
             <div class="telemetry-btn-toggle-group">
               <button class="telemetry-toggle-btn ${this.spatialScaleMode === 'log' ? 'active' : ''}" id="spatial-scale-log-btn">
                 ${t('stats.scaleLog')}
@@ -1219,6 +1320,12 @@ export class TelemetryDashboard {
     this.fetchLegacyData();
   }
 
+  private toggleLegacyTotal(): void {
+    this.legacyShowTotal = !this.legacyShowTotal;
+    this.render();
+    this.mountLegacyChart();
+  }
+
   private mountLegacyChart(): void {
     const slot = this.element.querySelector('#legacy-chart-slot');
     if (!slot) return;
@@ -1281,25 +1388,25 @@ export class TelemetryDashboard {
 
     return `
       <!-- KPI Banner: Points Only -->
-      <div class="telemetry-kpi-banner">
+      <div class="telemetry-kpi-banner five-cards">
         <div class="telemetry-kpi-card">
-          <div class="telemetry-kpi-val neutral-val">${totalPoints.toLocaleString()}</div>
+          <div class="telemetry-kpi-val neutral-val">${formatTelemetryNumber(totalPoints)}</div>
           <div class="telemetry-kpi-label">${t('stats.legacyTotalPoints')}</div>
         </div>
         <div class="telemetry-kpi-card">
-          <div class="telemetry-kpi-val neutral-val">${appPoints.toLocaleString()}</div>
+          <div class="telemetry-kpi-val neutral-val">${formatTelemetryNumber(appPoints)}</div>
           <div class="telemetry-kpi-label">${t('stats.legacyAppPoints')}</div>
         </div>
         <div class="telemetry-kpi-card">
-          <div class="telemetry-kpi-val neutral-val">${servicePoints.toLocaleString()}</div>
+          <div class="telemetry-kpi-val neutral-val">${formatTelemetryNumber(servicePoints)}</div>
           <div class="telemetry-kpi-label">${t('stats.legacyServicePoints')}</div>
         </div>
         <div class="telemetry-kpi-card">
-          <div class="telemetry-kpi-val neutral-val">${st70Points.toLocaleString()}</div>
+          <div class="telemetry-kpi-val neutral-val">${formatTelemetryNumber(st70Points)}</div>
           <div class="telemetry-kpi-label">${t('stats.legacyStereo70Points')}</div>
         </div>
         <div class="telemetry-kpi-card">
-          <div class="telemetry-kpi-val neutral-val">${st30Points.toLocaleString()}</div>
+          <div class="telemetry-kpi-val neutral-val">${formatTelemetryNumber(st30Points)}</div>
           <div class="telemetry-kpi-label">${t('stats.legacyStereo30Points')}</div>
         </div>
       </div>
@@ -1307,7 +1414,7 @@ export class TelemetryDashboard {
       <!-- Controls Deck -->
       <div class="telemetry-deck">
         <!-- Row 1: Unified Presets & Granularity -->
-        <div class="telemetry-deck-row unified-controls-row" style="justify-content: space-between;">
+        <div class="telemetry-deck-row unified-controls-row flex-between-center">
           <div class="telemetry-facet-group">
             <div class="telemetry-btn-toggle-group">
               <button class="telemetry-toggle-btn ${this.legacyPreset === 'all' && !this.legacyHasCustomRange ? 'active' : ''}" data-legacy-preset="all">${t('stats.presetAll')}</button>
@@ -1353,18 +1460,23 @@ export class TelemetryDashboard {
             </div>
           </div>
 
-          <div class="telemetry-range-limits-pill">
-            <span class="limit-subtle">${t('stats.legacyArchiveSpan', { date: this.legacyMinDate })}</span>
-            <span class="limit-divider">•</span>
-            <span class="limit-subtle">${t('stats.legacyArchiveEnd', { date: this.legacyMaxDate })}</span>
+          <div class="telemetry-date-limits-cluster">
+            <div class="telemetry-info-subgroup">
+              <span class="info-label">${t('stats.archiveStart')}</span>
+              <span class="info-field-readonly">${this.legacyMinDate}</span>
+            </div>
+            <div class="telemetry-info-subgroup">
+              <span class="info-label">${t('stats.archiveEnd')}</span>
+              <span class="info-field-readonly">${this.legacyMaxDate}</span>
+            </div>
           </div>
         </div>
 
         <!-- Row 3: Faceted Filters: Source (Left) & Operation (Right) -->
         <div class="telemetry-deck-row merged-filters-row">
           <div class="filters-left-group">
-            <span class="facet-label">${t('stats.sourcesFilterLabel')}</span>
-            <div class="sources-toggle-list">
+            <label class="form-label">${t('stats.sourcesFilterLabel')}</label>
+            <div class="telemetry-btn-toggle-group multi-select">
               <button type="button" class="telemetry-toggle-btn individual ${hasApp ? 'active' : ''}" data-legacy-source="app">
                 ${t('stats.legacySourceApp')}
               </button>
@@ -1375,8 +1487,8 @@ export class TelemetryDashboard {
           </div>
 
           <div class="filters-right-group">
-            <span class="facet-label">${t('stats.legacyOpLabel')}</span>
-            <div class="telemetry-individual-toggle-group">
+            <label class="form-label">${t('stats.legacyOpLabel')}</label>
+            <div class="telemetry-btn-toggle-group multi-select">
               <button type="button" class="telemetry-toggle-btn individual ${hasSt70 ? 'active' : ''}" data-legacy-op="st70">
                 ${t('stats.legacyOpStereo70')}
               </button>
@@ -1446,25 +1558,33 @@ export class TelemetryDashboard {
     if (this.legacyActiveSources.size > 0 && this.legacyActiveOps.size > 0) {
       const totalColor = this.legacyChart.getTotalColor();
       totalHtml = `
-        <div class="legend-total-row">
-          <span class="legend-group-title">${t('stats.seriesTotal')}:</span>
-          <div class="legend-group-items">
-            <span class="legend-sub-item interactive-legend-item" data-legend-series="total" title="Click to change line color">
-              <span class="legend-line-sample dashed-sample" style="background: repeating-linear-gradient(90deg, ${totalColor} 0, ${totalColor} 7px, transparent 7px, transparent 12px);"></span>
-              <span>${t('stats.legacyTotalPoints')}</span>
-              ${renderSwatchPopover('total', totalColor)}
-            </span>
-          </div>
+        <div class="legend-total-cluster">
+          <button type="button" class="telemetry-toggle-btn individual compact ${this.legacyShowTotal ? 'active' : ''}" id="legacy-toggle-total">
+            ${t('stats.seriesTotal')}
+          </button>
+          ${
+            this.legacyShowTotal
+              ? `
+            <div class="legend-total-swatches">
+              <span class="legend-sub-item interactive-legend-item" data-legend-series="total" title="Click to change line color">
+                <span class="legend-line-sample dashed-sample" style="background: repeating-linear-gradient(90deg, ${totalColor} 0, ${totalColor} 7px, transparent 7px, transparent 12px);"></span>
+                <span>${t('stats.legacyTotalPoints')}</span>
+                ${renderSwatchPopover('total', totalColor)}
+              </span>
+            </div>
+          `
+              : ''
+          }
         </div>
       `;
     }
 
     return `
       <div class="chart-legend-container">
+        ${totalHtml}
         <div class="legend-sources-row">
           ${sourceGroups.join('')}
         </div>
-        ${totalHtml}
       </div>
     `;
   }
@@ -1503,6 +1623,11 @@ export class TelemetryDashboard {
         const op = (e.currentTarget as HTMLElement).getAttribute('data-legacy-op');
         if (op) this.toggleLegacyOp(op);
       });
+    });
+
+    // Total overlay toggle
+    this.element.querySelector('#legacy-toggle-total')?.addEventListener('click', () => {
+      this.toggleLegacyTotal();
     });
 
     // Date range inputs

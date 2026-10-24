@@ -1,3 +1,4 @@
+import { formatTelemetryNumber, formatTelemetryCompact } from '../utils/numberFormat';
 import { t } from '../i18n';
 import type { TimelineSeriesItem, SourceItem } from '../utils/apiClient';
 
@@ -259,10 +260,10 @@ export class TimelineChart {
 
     // Add Axis Title Labels (Neutral grey matching X-axis)
     if (showCalls) {
-      leftAxisLabelsSvg += `<text x="${padding.left - 8}" y="${padding.top - 12}" text-anchor="end" class="chart-axis-title">${t('stats.metricTypeCalls')}</text>`;
+      leftAxisLabelsSvg += `<text x="${padding.left - 8}" y="${padding.top - 10}" text-anchor="end" class="chart-axis-title calls-title">${t('stats.metricTypeCalls')}</text>`;
     }
     if (showPoints) {
-      rightAxisLabelsSvg += `<text x="${width - padding.right + 8}" y="${padding.top - 12}" text-anchor="start" class="chart-axis-title">${t('stats.metricTypePoints')}</text>`;
+      rightAxisLabelsSvg += `<text x="${width - padding.right + 8}" y="${padding.top - 10}" text-anchor="start" class="chart-axis-title points-title">${t('stats.metricTypePoints')}</text>`;
     }
 
     // Build series paths
@@ -458,13 +459,17 @@ export class TimelineChart {
     const showPoints = metricMode === 'both' || metricMode === 'points';
     const totalColors = this.getTotalSeriesColors();
 
-    svg.addEventListener('mousemove', (e: MouseEvent) => {
+    const hideCrosshairAndTooltip = () => {
+      crosshair.style.display = 'none';
+      tooltip.style.display = 'none';
+    };
+
+    const updateCrosshairAndTooltip = (clientX: number, clientY: number) => {
       const rect = svg.getBoundingClientRect();
-      const mouseSvgX = ((e.clientX - rect.left) / rect.width) * totalWidth;
+      const mouseSvgX = ((clientX - rect.left) / rect.width) * totalWidth;
 
       if (mouseSvgX < padding.left || mouseSvgX > totalWidth - padding.right) {
-        crosshair.style.display = 'none';
-        tooltip.style.display = 'none';
+        hideCrosshairAndTooltip();
         return;
       }
 
@@ -487,10 +492,10 @@ export class TimelineChart {
         
         let detailsHtml = '';
         if (showCalls) {
-          detailsHtml += `<span><span class="legend-indicator" style="background-color: ${s.callsColor};"></span> ${t('stats.metricTypeCalls')}: <strong>${cVal.toLocaleString()}</strong></span>`;
+          detailsHtml += `<span><span class="legend-indicator" style="background-color: ${s.callsColor};"></span> ${t('stats.metricTypeCalls')}: <strong>${formatTelemetryNumber(cVal)}</strong></span>`;
         }
         if (showPoints) {
-          detailsHtml += `<span><span class="legend-indicator" style="background-color: ${s.pointsColor};"></span> ${t('stats.metricTypePoints')}: <strong>${pVal.toLocaleString()}</strong></span>`;
+          detailsHtml += `<span><span class="legend-indicator" style="background-color: ${s.pointsColor};"></span> ${t('stats.metricTypePoints')}: <strong>${formatTelemetryNumber(pVal)}</strong></span>`;
         }
 
         sourceRowsHtml += `
@@ -516,10 +521,10 @@ export class TimelineChart {
 
       let totalDetailsHtml = '';
       if (showCalls) {
-        totalDetailsHtml += `<span><span class="legend-indicator dashed" style="background-color: ${totalColors.callsColor};"></span> ${t('stats.metricTypeCalls')}: <strong>${totalSelectedCalls.toLocaleString()}</strong></span>`;
+        totalDetailsHtml += `<span><span class="legend-indicator dashed" style="background-color: ${totalColors.callsColor};"></span> ${t('stats.metricTypeCalls')}: <strong>${formatTelemetryNumber(totalSelectedCalls)}</strong></span>`;
       }
       if (showPoints) {
-        totalDetailsHtml += `<span><span class="legend-indicator dashed" style="background-color: ${totalColors.pointsColor};"></span> ${t('stats.metricTypePoints')}: <strong>${totalSelectedPoints.toLocaleString()}</strong></span>`;
+        totalDetailsHtml += `<span><span class="legend-indicator dashed" style="background-color: ${totalColors.pointsColor};"></span> ${t('stats.metricTypePoints')}: <strong>${formatTelemetryNumber(totalSelectedPoints)}</strong></span>`;
       }
 
       const totalHtml = `
@@ -542,19 +547,59 @@ export class TimelineChart {
 
       tooltip.style.display = 'block';
       const tooltipRect = tooltip.getBoundingClientRect();
-      const clientX = e.clientX - rect.left;
+      const relX = clientX - rect.left;
 
-      let leftPx = clientX + 15;
+      let leftPx = relX + 15;
       if (leftPx + tooltipRect.width > rect.width) {
-        leftPx = clientX - tooltipRect.width - 15;
+        leftPx = relX - tooltipRect.width - 15;
       }
-      tooltip.style.left = `${Math.max(10, leftPx)}px`;
-      tooltip.style.top = `${Math.max(10, e.clientY - rect.top - 20)}px`;
+      leftPx = Math.max(10, Math.min(leftPx, rect.width - tooltipRect.width - 10));
+      tooltip.style.left = `${leftPx}px`;
+
+      // Ergonomic vertical positioning: position ABOVE finger/pointer by default
+      // so finger doesn't obscure tooltip content; flip below if near top of chart
+      let topPx = clientY - rect.top - tooltipRect.height - 18;
+      if (topPx < 10) {
+        topPx = clientY - rect.top + 24;
+      }
+      topPx = Math.max(5, Math.min(topPx, rect.height - tooltipRect.height - 5));
+      tooltip.style.top = `${topPx}px`;
+    };
+
+    svg.addEventListener('mousemove', (e: MouseEvent) => {
+      updateCrosshairAndTooltip(e.clientX, e.clientY);
     });
 
     svg.addEventListener('mouseleave', () => {
-      crosshair.style.display = 'none';
-      tooltip.style.display = 'none';
+      hideCrosshairAndTooltip();
+    });
+
+    svg.addEventListener(
+      'touchstart',
+      (e: TouchEvent) => {
+        if (e.touches.length > 0) {
+          updateCrosshairAndTooltip(e.touches[0].clientX, e.touches[0].clientY);
+        }
+      },
+      { passive: true },
+    );
+
+    svg.addEventListener(
+      'touchmove',
+      (e: TouchEvent) => {
+        if (e.touches.length > 0) {
+          updateCrosshairAndTooltip(e.touches[0].clientX, e.touches[0].clientY);
+        }
+      },
+      { passive: true },
+    );
+
+    svg.addEventListener('touchend', () => {
+      hideCrosshairAndTooltip();
+    });
+
+    svg.addEventListener('touchcancel', () => {
+      hideCrosshairAndTooltip();
     });
   }
 
@@ -566,14 +611,10 @@ export class TimelineChart {
   }
 
   private formatNumber(num: number): string {
-    if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
-    if (num >= 1_000) return `${(num / 1_000).toFixed(1)}k`;
-    return String(num);
+    return formatTelemetryCompact(num, 1);
   }
 
   private formatCompact(num: number): string {
-    if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
-    if (num >= 1_000) return `${(num / 1_000).toFixed(0)}k`;
-    return String(num);
+    return formatTelemetryCompact(num, 0);
   }
 }

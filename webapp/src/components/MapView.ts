@@ -4,10 +4,11 @@ import 'leaflet.markercluster';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
 
-import { t, onLanguageChange } from '../i18n';
+import { t, getLanguage, onLanguageChange } from '../i18n';
 import { APP_CONFIG } from '../config';
 import { formatDegToDMS, degToRad } from '../utils/dmsParser';
 import type { AngularUnitType, PointTransformedEvent } from './PointConverter';
+import type { CoordinateOrder } from '../utils/pointParser';
 import type { BoundsBox, MapViewSnapshot } from './mapViewSnapshot';
 
 export const ROMANIA_GRID_BOUNDS = {
@@ -96,6 +97,7 @@ export class MapView {
 
   // Configuration & State
   private currentAngularUnit: AngularUnitType = 'degrees';
+  private currentOrder: CoordinateOrder = 'NE';
   private lastCursorLatLng: L.LatLng | null = null;
   private isLegendOpen: boolean = localStorage.getItem('pytransdat_legend_open') !== 'false';
 
@@ -211,6 +213,14 @@ export class MapView {
     };
   }
 
+  public fireMapClick(lat: number, lng: number): void {
+    if (this.isMeasuringMode) {
+      this.handleMeasureClick(L.latLng(lat, lng));
+      return;
+    }
+    this.callbacks.onMapPointClicked(lat, lng);
+  }
+
   public invalidateSize(): void {
     if (this.map) {
       this.map.invalidateSize();
@@ -219,6 +229,12 @@ export class MapView {
 
   public setAngularUnit(unit: AngularUnitType): void {
     this.currentAngularUnit = unit;
+    this.updateCursorBadge();
+  }
+
+  public setCoordinateOrder(order: CoordinateOrder): void {
+    if (this.currentOrder === order) return;
+    this.currentOrder = order;
     this.updateCursorBadge();
   }
 
@@ -425,7 +441,10 @@ export class MapView {
 
   private updateCursorBadge(): void {
     if (!this.lastCursorLatLng) {
-      this.coordsBadge.textContent = `Lat: 45.94320000  Long: 24.96680000`;
+      this.coordsBadge.textContent =
+        this.currentOrder === 'EN'
+          ? `Long: 24.96680000  Lat: 45.94320000`
+          : `Lat: 45.94320000  Long: 24.96680000`;
       return;
     }
 
@@ -446,7 +465,10 @@ export class MapView {
       lonStr = lon.toFixed(8);
     }
 
-    this.coordsBadge.textContent = `Lat: ${latStr}  Long: ${lonStr}`;
+    this.coordsBadge.textContent =
+      this.currentOrder === 'EN'
+        ? `Long: ${lonStr}  Lat: ${latStr}`
+        : `Lat: ${latStr}  Long: ${lonStr}`;
   }
 
   private renderControlsDock(): void {
@@ -600,7 +622,8 @@ export class MapView {
 
     if (chosen >= 1000) {
       const kmMax = chosen / 1000;
-      maxLabel = kmMax % 1 === 0 ? kmMax.toFixed(0) : kmMax.toFixed(1);
+      const isRo = getLanguage() === 'ro';
+      maxLabel = kmMax % 1 === 0 ? kmMax.toFixed(0) : (isRo ? kmMax.toFixed(1).replace('.', ',') : kmMax.toFixed(1));
       unitLabel = 'km';
     } else {
       maxLabel = chosen.toFixed(0);
@@ -893,7 +916,7 @@ export class MapView {
     }
   }
 
-  private zoomToRomaniaExtents(): void {
+  public zoomToRomaniaExtents(): void {
     if (!this.map) return;
     this.map.fitBounds(
       [
@@ -914,7 +937,7 @@ export class MapView {
   }
 
   // Simplified Distance Measurement Tool (Measures one distance at a time)
-  private toggleMeasureMode(forceState?: boolean): void {
+  public toggleMeasureMode(forceState?: boolean): void {
     this.isMeasuringMode = forceState !== undefined ? forceState : !this.isMeasuringMode;
     const btn = this.controlsDock.querySelector('#map-measure-btn');
 
@@ -952,7 +975,10 @@ export class MapView {
     } else {
       // Step 2: Lock measurement
       const dist = this.measureStartLatLng.distanceTo(latlng);
-      const distStr = dist < 1000 ? `${dist.toFixed(1)} m` : `${(dist / 1000).toFixed(3)} km`;
+      const isRo = getLanguage() === 'ro';
+      const distStr = dist < 1000
+        ? `${isRo ? dist.toFixed(1).replace('.', ',') : dist.toFixed(1)} m`
+        : `${isRo ? (dist / 1000).toFixed(3).replace('.', ',') : (dist / 1000).toFixed(3)} km`;
 
       const endMarker = L.circleMarker(latlng, {
         radius: 5,
@@ -969,6 +995,17 @@ export class MapView {
         dashArray: '6, 6',
       });
       this.measureLayer.addLayer(finalLine);
+
+      if (!this.measureTooltip && this.map) {
+        this.measureTooltip = L.tooltip({
+          permanent: true,
+          className: 'measure-tooltip',
+          direction: 'right',
+          offset: [10, 0],
+        })
+          .setLatLng(latlng)
+          .addTo(this.map);
+      }
 
       if (this.measureTooltip) {
         this.measureTooltip.setLatLng(latlng).setContent(`${t('map.distanceLabel')}: ${distStr}`);
@@ -999,7 +1036,10 @@ export class MapView {
     }
 
     const dist = this.measureStartLatLng.distanceTo(currentLatLng);
-    const distStr = dist < 1000 ? `${dist.toFixed(1)} m` : `${(dist / 1000).toFixed(3)} km`;
+    const isRo = getLanguage() === 'ro';
+    const distStr = dist < 1000
+      ? `${isRo ? dist.toFixed(1).replace('.', ',') : dist.toFixed(1)} m`
+      : `${isRo ? (dist / 1000).toFixed(3).replace('.', ',') : (dist / 1000).toFixed(3)} km`;
 
     if (!this.measureTooltip) {
       this.measureTooltip = L.tooltip({
@@ -1109,7 +1149,7 @@ export class MapView {
         if (choice === 'skip') {
           return;
         } else if (choice === 'sample') {
-          this.renderPointsIntoLayer(this.textLayer, points.slice(0, 1000), this.layerColors.text, false);
+          this.renderPointsIntoLayer(this.textLayer, points.slice(0, APP_CONFIG.batchSampleSize), this.layerColors.text, false);
         } else {
           this.renderPointsIntoLayer(this.textLayer, points, this.layerColors.text, false);
         }
@@ -1142,7 +1182,7 @@ export class MapView {
         if (choice === 'skip') {
           return;
         } else if (choice === 'sample') {
-          this.renderPointsIntoLayer(this.filesLayer, points.slice(0, 1000), this.layerColors.files, true);
+          this.renderPointsIntoLayer(this.filesLayer, points.slice(0, APP_CONFIG.batchSampleSize), this.layerColors.files, true);
         } else {
           this.renderPointsIntoLayer(this.filesLayer, points, this.layerColors.files, true);
         }

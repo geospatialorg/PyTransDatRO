@@ -1,4 +1,5 @@
 import { t, onLanguageChange } from '../i18n';
+import { formatTelemetryNumber, formatTelemetryDecimal } from '../utils/numberFormat';
 import {
   apiClient,
   type GridInfoResponse,
@@ -191,7 +192,9 @@ export class StatsView {
     const summary = this.timelineData?.summary;
     const totalCalls = summary?.total_calls ?? (this.telemetry?.summary.total_calls ?? 0);
     const totalPoints = summary?.total_points ?? (this.telemetry?.summary.total_points ?? 0);
-    const avgRatio = summary?.avg_points_per_call ?? (totalCalls > 0 ? (totalPoints / totalCalls).toFixed(1) : '0');
+    const avgRatio = typeof summary?.avg_points_per_call === 'number'
+      ? formatTelemetryDecimal(summary.avg_points_per_call, 1)
+      : (totalCalls > 0 ? formatTelemetryDecimal(totalPoints / totalCalls, 1) : '0');
     const periodText = summary?.from_date && summary?.to_date
       ? `${summary.from_date} → ${summary.to_date} (${summary.days_count ?? ''} ${t('stats.daysCount', { count: summary.days_count ?? 0 })})`
       : 'All Logged History';
@@ -200,11 +203,11 @@ export class StatsView {
       <!-- KPI Banner -->
       <div class="telemetry-kpi-banner">
         <div class="telemetry-kpi-card">
-          <div class="telemetry-kpi-val blue" id="kpi-calls">${totalCalls.toLocaleString()}</div>
+          <div class="telemetry-kpi-val blue" id="kpi-calls">${formatTelemetryNumber(totalCalls)}</div>
           <div class="telemetry-kpi-label">${t('stats.totalCalls')}</div>
         </div>
         <div class="telemetry-kpi-card">
-          <div class="telemetry-kpi-val cyan" id="kpi-points">${totalPoints.toLocaleString()}</div>
+          <div class="telemetry-kpi-val cyan" id="kpi-points">${formatTelemetryNumber(totalPoints)}</div>
           <div class="telemetry-kpi-label">${t('stats.totalPoints')}</div>
         </div>
         <div class="telemetry-kpi-card">
@@ -212,7 +215,7 @@ export class StatsView {
           <div class="telemetry-kpi-label">${t('stats.batchIntensity')}</div>
         </div>
         <div class="telemetry-kpi-card wide">
-          <div class="telemetry-kpi-val muted" id="kpi-period" style="font-size: 13px; font-weight: 500;">${periodText}</div>
+          <div class="telemetry-kpi-val muted date-kpi" id="kpi-period">${periodText}</div>
           <div class="telemetry-kpi-label">${t('stats.activePeriod')}</div>
         </div>
       </div>
@@ -262,37 +265,33 @@ export class StatsView {
     return `
       <!-- Grid Info Section -->
       <div>
-        <div style="font-size: 12px; font-weight: 700; color: var(--color-primary-light); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">
+        <div class="section-micro-label">
           ${t('stats.activeGridTitle')}
         </div>
-        <div style="font-size: 13px; line-height: 1.8; background-color: var(--bg-surface-elevated); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 10px 14px;">
-          <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding: 4px 0;">
+        <div class="content-card">
+          <div class="content-row-divided">
             <span style="color: var(--text-muted);">${t('stats.gridFile')}</span>
-            <span class="mono" style="font-weight: 600; color: var(--color-primary-light);">${this.gridInfo?.grid_file || 'transdat.spg'}</span>
+            <span class="mono">${this.gridInfo?.grid_file || 'transdat.spg'}</span>
           </div>
-          <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding: 4px 0;">
+          <div class="content-row-divided">
             <span style="color: var(--text-muted);">${t('stats.quasigeoid')}</span>
-            <span style="font-weight: 500;">${this.gridInfo?.quasigeoid_model || 'Model Cvasigeoid 2008'}</span>
+            <span>${this.gridInfo?.quasigeoid_model || 'Model Cvasigeoid 2008'}</span>
           </div>
-          <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding: 4px 0;">
+          <div class="content-row-divided">
             <span style="color: var(--text-muted);">${t('stats.projCRS')}</span>
-            <span class="mono" style="font-size: 12px;">${this.gridInfo?.crs.projected || 'EPSG:31700 (Stereo 70)'}</span>
+            <span class="mono">${this.gridInfo?.crs.projected || 'EPSG:31700 (Stereo 70)'}</span>
           </div>
-          <div style="display: flex; justify-content: space-between; padding: 4px 0;">
+          <div class="content-row-divided">
             <span style="color: var(--text-muted);">${t('stats.geoCRS')}</span>
-            <span class="mono" style="font-size: 12px;">${this.gridInfo?.crs.geographic || 'EPSG:4258 (ETRS89)'}</span>
+            <span class="mono">${this.gridInfo?.crs.geographic || 'EPSG:4258 (ETRS89)'}</span>
           </div>
         </div>
       </div>
 
       <!-- Accuracy Notice -->
-      <div style="padding: 10px 14px; background-color: var(--bg-surface-input); border-left: 3px solid var(--color-primary); border-radius: var(--radius-sm); margin-top: 14px;">
-        <div style="font-weight: 600; font-size: 12px; margin-bottom: 3px; color: var(--color-primary-light);">
-          ${t('stats.accuracyNoteTitle')}
-        </div>
-        <div style="font-size: 12px; color: var(--text-muted); line-height: 1.5;">
-          ${t('stats.accuracyNoteText')}
-        </div>
+      <div class="callout-box accent-primary">
+        <span class="callout-title">${t('stats.accuracyNoteTitle')}</span>
+        <p class="callout-body">${t('stats.accuracyNoteText')}</p>
       </div>
     `;
   }
@@ -372,32 +371,28 @@ export class StatsView {
         <div class="card-title">
           <span>${t('stats.activeGridTitle')}</span>
         </div>
-        <div style="font-size: 13px; line-height: 1.8;">
-          <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding: 6px 0;">
+        <div class="content-card">
+          <div class="content-row-divided">
             <span style="color: var(--text-muted);">${t('stats.gridFile')}</span>
-            <span class="mono" style="font-weight: 600; color: var(--color-primary-light);">${this.gridInfo?.grid_file || 'transdat.spg'}</span>
+            <span class="mono">${this.gridInfo?.grid_file || 'transdat.spg'}</span>
           </div>
-          <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding: 6px 0;">
+          <div class="content-row-divided">
             <span style="color: var(--text-muted);">${t('stats.quasigeoid')}</span>
-            <span style="font-weight: 500;">${this.gridInfo?.quasigeoid_model || 'Model Cvasigeoid 2008'}</span>
+            <span>${this.gridInfo?.quasigeoid_model || 'Model Cvasigeoid 2008'}</span>
           </div>
-          <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding: 6px 0;">
+          <div class="content-row-divided">
             <span style="color: var(--text-muted);">${t('stats.projCRS')}</span>
-            <span class="mono" style="font-size: 12px;">${this.gridInfo?.crs.projected || 'EPSG:31700 (Stereo 70)'}</span>
+            <span class="mono">${this.gridInfo?.crs.projected || 'EPSG:31700 (Stereo 70)'}</span>
           </div>
-          <div style="display: flex; justify-content: space-between; padding: 6px 0;">
+          <div class="content-row-divided">
             <span style="color: var(--text-muted);">${t('stats.geoCRS')}</span>
-            <span class="mono" style="font-size: 12px;">${this.gridInfo?.crs.geographic || 'EPSG:4258 (ETRS89)'}</span>
+            <span class="mono">${this.gridInfo?.crs.geographic || 'EPSG:4258 (ETRS89)'}</span>
           </div>
         </div>
 
-        <div style="margin-top: 14px; padding: 12px; background-color: var(--bg-surface-input); border-left: 3px solid var(--color-primary); border-radius: var(--radius-sm);">
-          <div style="font-weight: 600; font-size: 12px; margin-bottom: 4px; color: var(--color-primary-light);">
-            ${t('stats.accuracyNoteTitle')}
-          </div>
-          <div style="font-size: 12px; color: var(--text-muted); line-height: 1.6;">
-            ${t('stats.accuracyNoteText')}
-          </div>
+        <div class="callout-box accent-primary">
+          <span class="callout-title">${t('stats.accuracyNoteTitle')}</span>
+          <p class="callout-body">${t('stats.accuracyNoteText')}</p>
         </div>
       </div>
 
@@ -407,11 +402,11 @@ export class StatsView {
         </div>
         <div class="status-grid">
           <div class="status-badge-card">
-            <div class="status-badge-num" style="color: var(--color-primary-light);">${totalCalls.toLocaleString()}</div>
+            <div class="status-badge-num">${formatTelemetryNumber(totalCalls)}</div>
             <div class="status-badge-label">${t('stats.totalCalls')}</div>
           </div>
-          <div class="status-badge-card">
-            <div class="status-badge-num" style="color: var(--color-success);">${totalPoints.toLocaleString()}</div>
+          <div class="status-badge-card success">
+            <div class="status-badge-num">${formatTelemetryNumber(totalPoints)}</div>
             <div class="status-badge-label">${t('stats.totalPoints')}</div>
           </div>
         </div>

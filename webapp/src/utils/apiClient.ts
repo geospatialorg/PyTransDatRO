@@ -105,6 +105,8 @@ export interface TimelineSummary {
   avg_points_per_call: number;
   from_date: string | null;
   to_date: string | null;
+  effective_from_date?: string | null;
+  effective_to_date?: string | null;
   days_count: number | null;
   period_count?: number | null;
 }
@@ -173,6 +175,8 @@ export interface SpatialMatrixSummary {
   metric: 'points' | 'calls';
   from_date?: string | null;
   to_date?: string | null;
+  effective_from_date?: string | null;
+  effective_to_date?: string | null;
   quadrants: QuadrantSummary;
 }
 
@@ -283,13 +287,15 @@ export const apiClient = {
     file: File,
     op: TransformationOp,
     unit: AngleUnit = 'degrees',
-    delimiter: string = 'auto'
+    delimiter: string = 'auto',
+    skipHeader: boolean = false
   ): Promise<Response> {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('op', op);
     formData.append('unit', unit);
     formData.append('delimiter', delimiter);
+    formData.append('skip_header', String(skipHeader));
 
     const res = await fetch(apiUrl('/api/v1/transform/file'), {
       method: 'POST',

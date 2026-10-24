@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from starlette.testclient import TestClient
 
+import pytransdatro
 from api.main import app
 
 
@@ -123,6 +124,8 @@ def test_health_check(client):
     data = res.json()
     assert data["status"] == "healthy"
     assert data["grid_loaded"] is True
+    assert data["engine_version"] == pytransdatro.__version__
+    assert app.version == pytransdatro.__version__
     assert data["telemetry_active"] is True
     assert data["telemetry_status"] == "healthy"
 
@@ -852,6 +855,52 @@ def test_modern_file_upload_size_and_row_limits(client):
         app.dependency_overrides.pop(get_settings, None)
 
 
+def test_modern_file_skip_header_option(client):
+    """Verifies skip_header=True passes the first line verbatim without error comment or warning."""
+    csv_with_header = (
+        "PointID,StereoN,StereoE,Height\nP1,500000.0,500000.0,100.0\nP2,500000.0,500000.0,120.0\n"
+    )
+
+    # 1. With skip_header=False (default): header line is parsed as coordinates and flagged
+    files_no_skip = {
+        "file": ("header.csv", io.BytesIO(csv_with_header.encode("utf-8")), "text/csv")
+    }
+    res_no_skip = client.post(
+        "/api/v1/transform/file",
+        files=files_no_skip,
+        data={
+            "op": "Stereo70ToETRS89",
+            "unit": "degrees",
+            "delimiter": "comma",
+            "skip_header": "false",
+        },
+    )
+    assert res_no_skip.status_code == 200
+    lines_no_skip = res_no_skip.text.strip().splitlines()
+    assert len(lines_no_skip) == 3
+    assert lines_no_skip[0].endswith("# Invalid coordinate data")
+    assert lines_no_skip[1].startswith("P1,45.999")
+
+    # 2. With skip_header=True: header line is preserved verbatim
+    files_skip = {"file": ("header.csv", io.BytesIO(csv_with_header.encode("utf-8")), "text/csv")}
+    res_skip = client.post(
+        "/api/v1/transform/file",
+        files=files_skip,
+        data={
+            "op": "Stereo70ToETRS89",
+            "unit": "degrees",
+            "delimiter": "comma",
+            "skip_header": "true",
+        },
+    )
+    assert res_skip.status_code == 200
+    lines_skip = res_skip.text.strip().splitlines()
+    assert len(lines_skip) == 3
+    assert lines_skip[0] == "PointID,StereoN,StereoE,Height"
+    assert lines_skip[1].startswith("P1,45.999")
+    assert lines_skip[2].startswith("P2,45.999")
+
+
 def test_health_check_degraded_and_telemetry_flags(client):
     """Verifies /health reports degraded when trans is None, and tracks telemetry health."""
     from unittest.mock import MagicMock
@@ -1085,3 +1134,31 @@ def test_telemetry_endpoints_with_seeded_sqlite_db(client, tmp_path):
         assert res_sm_calls.json()["summary"]["quadrants"]["NW"]["percentage"] == 25.0
     finally:
         app.dependency_overrides.pop(get_db_path, None)
+
+
+def test_telemetry_effective_date_snapping_and_parity(client):
+    """Verifies effective date snapping on monthly/multi-day buckets and points parity."""
+    # 1. Query a 7-day mid-month window in March 2025 (where spatial is monthly: 2025-03-01 to 2025-03-31)
+    res_sm = client.get("/api/v1/telemetry/spatial-matrix?from_date=2025-03-10&to_date=2025-03-17")
+    assert res_sm.status_code == 200
+    d_sm = res_sm.json()
+    assert d_sm["summary"]["from_date"] == "2025-03-10"
+    assert d_sm["summary"]["to_date"] == "2025-03-17"
+    assert d_sm["summary"]["effective_from_date"] == "2025-03-01"
+    assert d_sm["summary"]["effective_to_date"] == "2025-03-31"
+
+    # 2. Query timeline for the same exact full month
+    res_tl = client.get("/api/v1/telemetry/timeline?from_date=2025-03-01&to_date=2025-03-31")
+    assert res_tl.status_code == 200
+    d_tl = res_tl.json()
+    assert d_tl["summary"]["effective_from_date"] == "2025-03-01"
+    assert d_tl["summary"]["effective_to_date"] == "2025-03-31"
+
+    # 3. Verify points parity: for the full month of March 2025, total_points must match
+    month_sm = client.get(
+        "/api/v1/telemetry/spatial-matrix?from_date=2025-03-01&to_date=2025-03-31&metric=points"
+    )
+    assert month_sm.status_code == 200
+    month_sm_data = month_sm.json()
+
+    assert month_sm_data["summary"]["total_metric_value"] == d_tl["summary"]["total_points"]
